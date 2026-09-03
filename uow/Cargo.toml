@@ -1,0 +1,17 @@
+[package]
+name = "uow"
+version = "0.0.1"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+documentation.workspace = true
+homepage.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "A lightweight set of types to express transaction borders in architectures like onion"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

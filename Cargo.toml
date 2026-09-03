@@ -1,0 +1,16 @@
+[workspace]
+resolver = "3"
+members = [
+    "uow",
+
+    "examples/onion",
+]
+
+[workspace.package]
+authors = ["root-talis <root.talis@gmail.com>"]
+edition = "2024"
+rust-version = "1.95"
+homepage = "https://github.com/root-talis/uow"
+repository = "https://github.com/root-talis/uow"
+documentation = "https://github.com/root-talis/uow"
+license = "MIT OR Apache-2.0"
