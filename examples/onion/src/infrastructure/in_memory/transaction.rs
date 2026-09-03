@@ -3,6 +3,7 @@ use std::sync::Arc;
 use uow::{
     TxResult, UnitOfWork, UnitOfWorkFactory,
 };
+use crate::application::dto::Message;
 use super::platform::InMemoryPlatform;
 use super::store::Store;
 
@@ -10,7 +11,7 @@ use super::store::Store;
 /// Created by a Store and can commit its changes back to that store.
 pub struct InMemoryTransaction {
     store: Arc<Store>,
-    emails: Vec<String>,
+    emails: Vec<Message>,
 }
 
 impl InMemoryTransaction {
@@ -23,12 +24,15 @@ impl InMemoryTransaction {
     }
 
     /// Adds an email to this transaction.
-    pub fn add_email(&mut self, msg: &str) {
-        self.emails.push(msg.to_string());
+    pub fn add_email(&mut self, msg: &Message) {
+        self.emails.push(Message {
+            message: msg.message.clone(),
+            created_at: msg.created_at,
+        });
     }
 
     // Reads emails from the store and this transaction
-    pub fn read_emails(&self) -> Vec<String> {
+    pub fn read_emails(&self) -> Vec<Message> {
         [self.store.get_emails().as_slice(), self.emails.as_slice()].concat()
     }
 }
@@ -133,6 +137,7 @@ impl UnitOfWorkFactory<InMemoryPlatform> for InMemoryUnitOfWorkFactory {
 mod tests {
     use std::sync::Arc;
 
+    use crate::application::dto::Message;
     use crate::infrastructure::in_memory::{store::Store, transaction::InMemoryUnitOfWorkFactory};
     use uow::{TxResult, UnitOfWorkFactory};
 
@@ -140,25 +145,34 @@ mod tests {
     async fn test_with_unitofwork_commit_ok_dumps_emails() {
         let store = Arc::new(Store::new());
         let factory = InMemoryUnitOfWorkFactory::new(store.clone());
+        let fixed_time = chrono::Utc::now();
         let result: Result<&str, &str> = factory
             .with_unitofwork(async |uow| {
-                uow.tx_mut().add_email("test@example.com");
+                uow.tx_mut().add_email(&Message {
+                    message: "test@example.com".to_string(),
+                    created_at: fixed_time,
+                });
                 Ok(TxResult::commit("success"))
             })
             .await;
 
         assert_eq!(result.unwrap(), "success");
         let emails = store.get_emails();
-        assert_eq!(emails, vec!["test@example.com"]);
+        assert_eq!(emails.len(), 1);
+        assert_eq!(emails[0].message, "test@example.com");
     }
 
     #[tokio::test]
     async fn test_with_unitofwork_rollback_ok_discards_emails() {
         let store = Arc::new(Store::new());
         let factory = InMemoryUnitOfWorkFactory::new(store.clone());
+        let fixed_time = chrono::Utc::now();
         let result: Result<&str, &str> = factory
             .with_unitofwork(async |uow| {
-                uow.tx_mut().add_email("test@example.com");
+                uow.tx_mut().add_email(&Message {
+                    message: "test@example.com".to_string(),
+                    created_at: fixed_time,
+                });
                 Ok(TxResult::rollback("success"))
             })
             .await;
@@ -172,25 +186,34 @@ mod tests {
     async fn test_with_unitofwork_commit_err_dumps_emails() {
         let store = Arc::new(Store::new());
         let factory = InMemoryUnitOfWorkFactory::new(store.clone());
+        let fixed_time = chrono::Utc::now();
         let result: Result<&str, &str> = factory
             .with_unitofwork(async |uow| {
-                uow.tx_mut().add_email("test@example.com");
+                uow.tx_mut().add_email(&Message {
+                    message: "test@example.com".to_string(),
+                    created_at: fixed_time,
+                });
                 Err(TxResult::commit("error"))
             })
             .await;
 
         assert_eq!(result.unwrap_err(), "error");
         let emails = store.get_emails();
-        assert_eq!(emails, vec!["test@example.com"]);
+        assert_eq!(emails.len(), 1);
+        assert_eq!(emails[0].message, "test@example.com");
     }
 
     #[tokio::test]
     async fn test_with_unitofwork_rollback_err_discards_emails() {
         let store = Arc::new(Store::new());
         let factory = InMemoryUnitOfWorkFactory::new(store.clone());
+        let fixed_time = chrono::Utc::now();
         let result: Result<&str, &str> = factory
             .with_unitofwork(async |uow| {
-                uow.tx_mut().add_email("test@example.com");
+                uow.tx_mut().add_email(&Message {
+                    message: "test@example.com".to_string(),
+                    created_at: fixed_time,
+                });
                 Err(TxResult::rollback("error"))
             })
             .await;

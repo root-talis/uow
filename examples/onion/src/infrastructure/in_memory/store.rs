@@ -1,11 +1,12 @@
 use std::sync::{Arc, Mutex};
 
+use crate::application::dto::Message;
 use super::transaction::InMemoryTransaction;
 
 /// In-memory store that acts like a database connection.
 /// Holds the list of emails that have been committed.
 pub struct Store {
-    emails: Mutex<Vec<String>>,
+    emails: Mutex<Vec<Message>>,
 }
 
 impl Store {
@@ -22,12 +23,12 @@ impl Store {
     }
 
     /// Adds emails to the store.
-    pub(crate) fn add_emails(&self, emails: Vec<String>) {
+    pub(crate) fn add_emails(&self, emails: Vec<Message>) {
         self.emails.lock().unwrap().extend(emails);
     }
 
     /// Returns a copy of all emails in the store.
-    pub fn get_emails(&self) -> Vec<String> {
+    pub fn get_emails(&self) -> Vec<Message> {
         self.emails.lock().unwrap().clone()
     }
 }

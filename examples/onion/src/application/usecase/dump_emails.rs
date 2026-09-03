@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use crate::application::dto::Message;
 use crate::application::ports::email::EmailTransactionalOutboxReader;
 use uow::{DatabasePlatform, TxResult, UnitOfWorkFactory};
 
@@ -33,7 +34,7 @@ where
 
     /// Executes the use case by opening a unit of work,
     /// dumping emails, and returning the result.
-    pub async fn execute(&self) -> Result<Vec<String>, String> {
+    pub async fn execute(&self) -> Result<Vec<Message>, String> {
         self.uow_factory
             .with_unitofwork(async |uow| {
                 self.email_reader
