@@ -93,13 +93,13 @@ impl InMemoryUnitOfWorkFactory {
 }
 
 impl UnitOfWorkFactory<InMemoryPlatform> for InMemoryUnitOfWorkFactory {
-    type UoW = InMemoryUnitOfWork;
+    type UoW<'a> = InMemoryUnitOfWork;
 
     async fn with_unitofwork<T, E, F>(&self, f: F) -> Result<T, E>
     where
         T: Send,
         E: Send,
-        F: AsyncFnOnce(&mut Self::UoW) -> Result<TxResult<T>, TxResult<E>> + Send,
+        F: for <'a> AsyncFnOnce(&mut Self::UoW<'a>) -> Result<TxResult<T>, TxResult<E>> + Send,
     {
         let mut uow = InMemoryUnitOfWork::new(self.store.begin_transaction());
         let result = f(&mut uow).await;

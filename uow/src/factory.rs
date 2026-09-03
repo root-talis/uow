@@ -5,7 +5,7 @@ use crate::{platform::DatabasePlatform, tx_result::TxResult, uow::UnitOfWork};
 /// allowing the caller to indicate whether the transaction should be committed or rolled back.
 pub trait UnitOfWorkFactory<P: DatabasePlatform>: Send + Sync {
     /// The unit of work type for this platform.
-    type UoW: UnitOfWork<P>;
+    type UoW<'c>: UnitOfWork<P>;
 
     /// Executes the given async closure within a unit of work.
     ///
@@ -16,5 +16,5 @@ pub trait UnitOfWorkFactory<P: DatabasePlatform>: Send + Sync {
     where
         T: Send,
         E: Send,
-        F: AsyncFnOnce(&mut Self::UoW) -> Result<TxResult<T>, TxResult<E>> + Send;
+        F: for<'c> AsyncFnOnce(&mut Self::UoW<'c>) -> Result<TxResult<T>, TxResult<E>> + Send;
 }

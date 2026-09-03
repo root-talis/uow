@@ -8,5 +8,5 @@ pub mod transaction;
 pub struct InMemoryPlatform;
 
 impl DatabasePlatform for InMemoryPlatform {
-    type Transaction = InMemoryTransaction;
+    type Transaction<'a> = InMemoryTransaction;
 }
