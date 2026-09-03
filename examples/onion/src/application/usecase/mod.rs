@@ -15,10 +15,16 @@ mod test {
     use crate::application::dto::Message;
     use crate::application::ports::clock::Clock;
     use crate::application::ports::email::EmailTransactionalOutboxWriter;
-    use crate::infrastructure::in_memory::email_repository::InMemoryEmailRepository;
-    use crate::infrastructure::in_memory::platform::InMemoryPlatform;
-    use crate::infrastructure::in_memory::store::Store;
-    use crate::infrastructure::in_memory::transaction::{InMemoryUnitOfWork, InMemoryUnitOfWorkFactory};
+    use crate::infrastructure::persistence::in_memory::{
+        repository::{
+            email_repository::InMemoryEmailRepository,
+        },
+        platform::{
+            InMemoryPlatform,
+            store::Store,
+            transaction::{InMemoryUnitOfWork, InMemoryUnitOfWorkFactory},
+        }
+    };
 
     /// Test double clock that returns a fixed time.
     struct FixedClock {
@@ -54,14 +60,15 @@ mod test {
         let email_repo = Arc::new(InMemoryEmailRepository);
         let fixed_time = Utc::now();
         let clock = Arc::new(FixedClock::new(fixed_time));
-        let send_usecase = SendEmailUseCase::new(factory, email_repo, clock);
+        let send_usecase = SendEmailUseCase::new(factory.clone(), email_repo.clone(), clock);
+        let dump_usecase = DumpEmailsUseCase::new(factory, email_repo);
 
         let result = send_usecase.execute(SendEmailRequest {
             message: "Hello, World!".to_string(),
         }).await;
 
         assert!(result.is_ok());
-        let emails = store.get_emails();
+        let emails = dump_usecase.execute().await.unwrap();
         assert_eq!(emails.len(), 1);
         assert_eq!(emails[0].message, "Hello, World!");
         assert_eq!(emails[0].created_at, fixed_time);
@@ -72,46 +79,25 @@ mod test {
         let store = Arc::new(Store::new());
         let factory = Arc::new(InMemoryUnitOfWorkFactory::new(store.clone()));
         let email_writer = Arc::new(FailingEmailWriter);
+        let email_repo = Arc::new(InMemoryEmailRepository);
+
         let fixed_time = Utc::now();
         let clock = Arc::new(FixedClock::new(fixed_time));
-        let usecase = SendEmailUseCase::new(factory, email_writer, clock);
+        let send_usecase = SendEmailUseCase::new(factory.clone(), email_writer, clock);
+        let dump_usecase = DumpEmailsUseCase::new(factory.clone(), email_repo);
 
-        let result = usecase.execute(SendEmailRequest {
+        let result = send_usecase.execute(SendEmailRequest {
             message: "This will fail".to_string(),
         }).await;
 
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "Email delivery failed");
-        let emails = store.get_emails();
+        let emails = dump_usecase.execute().await.unwrap();
         assert!(emails.is_empty(), "Emails should be discarded on rollback");
     }
 
     #[tokio::test]
     async fn test_multiple_emails_committed() {
-        let store = Arc::new(Store::new());
-        let factory = Arc::new(InMemoryUnitOfWorkFactory::new(store.clone()));
-        let email_repo = Arc::new(InMemoryEmailRepository);
-        let fixed_time = Utc::now();
-        let clock = Arc::new(FixedClock::new(fixed_time));
-        let usecase = SendEmailUseCase::new(factory, email_repo, clock);
-
-        usecase.execute(SendEmailRequest {
-            message: "First email".to_string(),
-        }).await.unwrap();
-        usecase.execute(SendEmailRequest {
-            message: "Second email".to_string(),
-        }).await.unwrap();
-
-        let emails = store.get_emails();
-        assert_eq!(emails.len(), 2);
-        assert_eq!(emails[0].message, "First email");
-        assert_eq!(emails[0].created_at, fixed_time);
-        assert_eq!(emails[1].message, "Second email");
-        assert_eq!(emails[1].created_at, fixed_time);
-    }
-
-    #[tokio::test]
-    async fn test_send_and_dump_share_same_store() {
         let store = Arc::new(Store::new());
         let factory = Arc::new(InMemoryUnitOfWorkFactory::new(store.clone()));
         let email_repo = Arc::new(InMemoryEmailRepository);
@@ -127,13 +113,18 @@ mod test {
 
         // Send an email
         send_usecase.execute(SendEmailRequest {
-            message: "Shared email".to_string(),
+            message: "First email".to_string(),
+        }).await.unwrap();
+        send_usecase.execute(SendEmailRequest {
+            message: "Second email".to_string(),
         }).await.unwrap();
 
         // Dump should now see the committed email
         let emails = dump_usecase.execute().await.unwrap();
-        assert_eq!(emails.len(), 1);
-        assert_eq!(emails[0].message, "Shared email");
+        assert_eq!(emails.len(), 2);
+        assert_eq!(emails[0].message, "First email");
         assert_eq!(emails[0].created_at, fixed_time);
+        assert_eq!(emails[1].message, "Second email");
+        assert_eq!(emails[1].created_at, fixed_time);
     }
 }

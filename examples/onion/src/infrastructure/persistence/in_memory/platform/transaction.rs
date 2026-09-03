@@ -4,7 +4,7 @@ use uow::{
     TxResult, UnitOfWork, UnitOfWorkFactory,
 };
 use crate::application::dto::Message;
-use super::platform::InMemoryPlatform;
+use super::InMemoryPlatform;
 use super::store::Store;
 
 /// In-memory transaction that tracks sent emails.
@@ -138,7 +138,7 @@ mod tests {
     use std::sync::Arc;
 
     use crate::application::dto::Message;
-    use crate::infrastructure::in_memory::{store::Store, transaction::InMemoryUnitOfWorkFactory};
+    use crate::infrastructure::persistence::in_memory::platform::{store::Store, transaction::InMemoryUnitOfWorkFactory};
     use uow::{TxResult, UnitOfWorkFactory};
 
     #[tokio::test]

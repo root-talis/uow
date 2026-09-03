@@ -1,7 +1,7 @@
 use crate::application::dto::Message;
 use crate::application::ports::email::{EmailTransactionalOutboxReader, EmailTransactionalOutboxWriter};
-use super::platform::InMemoryPlatform;
-use super::transaction::InMemoryUnitOfWork;
+use crate::infrastructure::persistence::in_memory::platform::InMemoryPlatform;
+use crate::infrastructure::persistence::in_memory::platform::transaction::InMemoryUnitOfWork;
 
 /// In-memory email repository that works via the unit of work's transaction.
 pub struct InMemoryEmailRepository;

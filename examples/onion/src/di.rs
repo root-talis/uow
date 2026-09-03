@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use crate::application::usecase::{DumpEmailsUseCase, SendEmailUseCase};
 use crate::infrastructure::clock::SystemClock;
-use crate::infrastructure::in_memory::email_repository::InMemoryEmailRepository;
-use crate::infrastructure::in_memory::platform::InMemoryPlatform;
-use crate::infrastructure::in_memory::store::Store;
-use crate::infrastructure::in_memory::transaction::InMemoryUnitOfWorkFactory;
+use crate::infrastructure::persistence::in_memory::repository::email_repository::InMemoryEmailRepository;
+use crate::infrastructure::persistence::in_memory::platform::InMemoryPlatform;
+use crate::infrastructure::persistence::in_memory::platform::store::Store;
+use crate::infrastructure::persistence::in_memory::platform::transaction::InMemoryUnitOfWorkFactory;
 
 /// Dependency injection container holding concrete use cases.
 #[derive(Clone)]

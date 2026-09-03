@@ -1,5 +1,8 @@
 use uow::DatabasePlatform;
-use crate::infrastructure::in_memory::transaction::InMemoryTransaction;
+use transaction::InMemoryTransaction;
+
+pub mod store;
+pub mod transaction;
 
 /// In-memory database platform for testing.
 pub struct InMemoryPlatform;
