@@ -25,6 +25,22 @@ where
     _phantom: PhantomData<P>,
 }
 
+impl<P, F, E> Clone for SendEmailUseCase<P, F, E>
+where
+    P: DatabasePlatform,
+    F: UnitOfWorkFactory<P>,
+    E: EmailTransactionalOutboxWriter<P, F::UoW>,
+{
+    fn clone(&self) -> Self {
+        Self {
+            uow_factory: Arc::clone(&self.uow_factory),
+            email_writer: Arc::clone(&self.email_writer),
+            clock: Arc::clone(&self.clock),
+            _phantom: PhantomData,
+        }
+    }
+}
+
 impl<P, F, E> SendEmailUseCase<P, F, E>
 where
     P: DatabasePlatform,

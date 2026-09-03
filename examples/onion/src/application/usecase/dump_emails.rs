@@ -16,6 +16,21 @@ where
     _phantom: PhantomData<P>,
 }
 
+impl<P, F, E> Clone for DumpEmailsUseCase<P, F, E>
+where
+    P: DatabasePlatform,
+    F: UnitOfWorkFactory<P>,
+    E: EmailTransactionalOutboxReader<P, F::UoW>,
+{
+    fn clone(&self) -> Self {
+        Self {
+            uow_factory: Arc::clone(&self.uow_factory),
+            email_reader: Arc::clone(&self.email_reader),
+            _phantom: PhantomData,
+        }
+    }
+}
+
 impl<P, F, E> DumpEmailsUseCase<P, F, E>
 where
     P: DatabasePlatform,
