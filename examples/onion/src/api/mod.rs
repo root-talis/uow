@@ -36,23 +36,13 @@ pub mod foo {
         State(fac): State<UoWFac>,
         Json(payload): Json<TransferRequest>,
     ) -> impl IntoResponse {
-        // Start the transaction
-        let mut uow = match fac.create().await {
-            Ok(uow) => uow,
-            Err(_) => return StatusCode::INTERNAL_SERVER_ERROR,
-        };
-
         // Call the use case function, passing the transaction as a mutable reference
-        if transfer_usecase(&mut uow, &payload).await.is_err() {
+        if transfer_usecase(&fac, &payload).await.is_err() {
             // Transaction is automatically dropped and rolled back here on failure
             return StatusCode::BAD_REQUEST;
         }
 
-        // Commit if the usecase succeeds
-        match uow.commit().await {
-            Ok(_) => StatusCode::OK,
-            Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
-        }
+        StatusCode::OK
     }
 
     #[derive(Clone)]
@@ -86,21 +76,42 @@ pub mod foo {
 
     // 2. The Use Case: Handles the business logic and queries
     async fn transfer_usecase(
-        uow: &mut UoW<'_>,
+        uow_factory: &UoWFac,
         payload: &TransferRequest,
     ) -> Result<(), sqlx::Error> {
-        // Perform the first query using the passed transaction reference
+        let mut uow = uow_factory.create().await?;
+
+        infra_transfer_withdraw(&mut uow, payload.from_user_id, payload.amount).await?;
+        infra_transfer_deposit(&mut uow, payload.to_user_id, payload.amount).await?;
+        
+        uow.commit().await?;
+
+        Ok(())
+    }
+
+    async fn infra_transfer_withdraw(
+        uow: &mut UoW<'_>,
+        user_id: i64,
+        amount: i64,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query("UPDATE accounts SET balance = balance - $1 WHERE id = $2")
-            .bind(payload.amount)
-            .bind(payload.from_user_id)
+            .bind(amount)
+            .bind(user_id)
             .execute(&mut **uow.tx_mut()) // Re-borrow the transaction connection
             .await?;
 
-        // Perform the second query
+        Ok(())
+    }
+
+    async fn infra_transfer_deposit(
+        uow: &mut UoW<'_>,
+        user_id: i64,
+        amount: i64,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query("UPDATE accounts SET balance = balance + $1 WHERE id = $2")
-            .bind(payload.amount)
-            .bind(payload.to_user_id)
-            .execute(&mut **uow.tx_mut())
+            .bind(amount)
+            .bind(user_id)
+            .execute(&mut **uow.tx_mut()) // Re-borrow the transaction connection
             .await?;
 
         Ok(())
