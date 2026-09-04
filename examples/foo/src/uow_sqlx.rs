@@ -47,4 +47,23 @@ impl UoWFac for SqlxUoWFac {
         let tx = self.pool.begin().await?;
         Ok(SqlxUoW::new(tx))
     }
+
+    async fn with_uow<F, Fut, R>(&self, f: F) -> Result<R, <Self::UoW as UoW>::Error>
+    where
+        F: FnOnce(Self::UoW) -> Fut + Send,
+        Fut: std::future::Future<Output = Result<(Self::UoW, R), <Self::UoW as UoW>::Error>> + Send,
+        R: Send,
+    {
+        let uow = self.create().await?;
+        match f(uow).await {
+            Ok((uow, value)) => {
+                uow.commit().await?;
+                Ok(value)
+            }
+            Err(e) => {
+                // Transaction is automatically rolled back when dropped
+                Err(e)
+            }
+        }
+    }
 }

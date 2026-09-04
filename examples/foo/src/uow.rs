@@ -20,4 +20,15 @@ pub trait UoWFac: Clone + Send + Sync {
 
     /// Create a new UoW instance.
     async fn create(&self) -> Result<Self::UoW, <Self::UoW as UoW>::Error>;
+
+    /// Execute a closure within a UoW, automatically committing on success
+    /// or rolling back on failure.
+    ///
+    /// The closure takes ownership of the UoW and returns it along with the result,
+    /// avoiding lifetime issues with async closures.
+    async fn with_uow<F, Fut, R>(&self, f: F) -> Result<R, <Self::UoW as UoW>::Error>
+    where
+        F: FnOnce(Self::UoW) -> Fut + Send,
+        Fut: std::future::Future<Output = Result<(Self::UoW, R), <Self::UoW as UoW>::Error>> + Send,
+        R: Send;
 }
