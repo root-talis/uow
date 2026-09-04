@@ -1,32 +1,33 @@
 use async_trait::async_trait;
 
 use crate::uow::UoW;
+use crate::uow_sqlx::SqlxUoW;
 
 #[async_trait]
-pub trait TransferRepository: Send + Sync {
+pub trait TransferRepository<U: UoW>: Send + Sync {
     async fn withdraw(
         &self,
-        uow: &mut UoW<'_>,
+        uow: &mut U,
         user_id: i64,
         amount: i64,
-    ) -> Result<(), sqlx::Error>;
+    ) -> Result<(), U::Error>;
 
     async fn deposit(
         &self,
-        uow: &mut UoW<'_>,
+        uow: &mut U,
         user_id: i64,
         amount: i64,
-    ) -> Result<(), sqlx::Error>;
+    ) -> Result<(), U::Error>;
 }
 
 #[derive(Clone)]
 pub struct SqlxTransferRepository;
 
 #[async_trait]
-impl TransferRepository for SqlxTransferRepository {
+impl TransferRepository<SqlxUoW> for SqlxTransferRepository {
     async fn withdraw(
         &self,
-        uow: &mut UoW<'_>,
+        uow: &mut SqlxUoW,
         user_id: i64,
         amount: i64,
     ) -> Result<(), sqlx::Error> {
@@ -41,7 +42,7 @@ impl TransferRepository for SqlxTransferRepository {
 
     async fn deposit(
         &self,
-        uow: &mut UoW<'_>,
+        uow: &mut SqlxUoW,
         user_id: i64,
         amount: i64,
     ) -> Result<(), sqlx::Error> {

@@ -1,31 +1,23 @@
-use sqlx::{Sqlite, SqlitePool, Transaction};
+use async_trait::async_trait;
 
-#[derive(Clone)]
-pub struct UoWFac {
-    pool: SqlitePool,
+/// Trait for a Unit of Work (transaction wrapper).
+/// Allows different transaction backends to be plugged in.
+#[async_trait]
+pub trait UoW: Send {
+    /// The error type returned by this UoW implementation.
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    /// Commit the transaction.
+    async fn commit(self) -> Result<(), Self::Error>;
 }
 
-impl UoWFac {
-    pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
-    }
+/// Trait for a Unit of Work factory.
+/// Creates UoW instances with a specific error type.
+#[async_trait]
+pub trait UoWFac: Clone + Send + Sync {
+    /// The type of UoW this factory creates.
+    type UoW: UoW;
 
-    pub async fn create(&self) -> Result<UoW<'_>, sqlx::Error> {
-        let tx = self.pool.begin().await?;
-        Ok(UoW { tx })
-    }
-}
-
-pub struct UoW<'a> {
-    tx: Transaction<'a, Sqlite>,
-}
-
-impl<'a> UoW<'a> {
-    pub async fn commit(self) -> Result<(), sqlx::Error> {
-        self.tx.commit().await
-    }
-
-    pub fn tx_mut(&mut self) -> &mut Transaction<'a, Sqlite> {
-        &mut self.tx
-    }
+    /// Create a new UoW instance.
+    async fn create(&self) -> Result<Self::UoW, <Self::UoW as UoW>::Error>;
 }

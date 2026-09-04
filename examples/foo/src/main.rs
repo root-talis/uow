@@ -9,12 +9,11 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use color_eyre::eyre::{Result, WrapErr};
 
 mod application;
+mod container;
 mod infrastructure;
 mod presentation;
 mod uow;
-mod container;
-
-use uow::UoWFac;
+mod uow_sqlx;
 
 use crate::container::Container;
 
