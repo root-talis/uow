@@ -4,6 +4,7 @@ members = [
     "uow",
 
     "examples/onion",
+    "examples/foo",
 ]
 
 [workspace.package]
