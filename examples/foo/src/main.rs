@@ -1,6 +1,8 @@
-use std::env;
 use std::net::{IpAddr, Ipv4Addr};
+use std::str::FromStr;
 
+use dotenv::{EnvLoader, EnvMap};
+use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::SqlitePool;
 use tokio::net::TcpListener;
 use tracing::{info, warn};
@@ -23,29 +25,16 @@ async fn main() -> Result<()> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "foo=info,tower_http=debug".into()),
+                .unwrap_or_else(|_| "foo=debug,tower_http=debug".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // Read port from env, default to 3000.
-    let port: u16 = env::var("PORT")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(3000);
+    let env = EnvLoader::with_paths(["./examples/foo/.env"]).load()?;
 
-    // Read addr from env, default to 0.0.0.0
-    let addr: IpAddr = env::var("ADDR")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
-    ;
+    let addr = get_listen_addr(&env);
+    let pool = setup_sqlite(&env).await?;
 
-    let addr = format!("{}:{}", addr, port);
-
-    let pool = SqlitePool::connect("sqlite::memory:").await.wrap_err("failed to create sqlite pool")?;
-
-    // Bootstrap the dependency container.
     let container = Container::new(pool);
 
     // Create the router with request tracing.
@@ -59,6 +48,40 @@ async fn main() -> Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .wrap_err("server failed")
+}
+
+fn get_listen_addr(env: &EnvMap) -> String {
+    let port: u16 = env.var("PORT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3000);
+
+    let addr: IpAddr = env.var("ADDR")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
+    ;
+
+    format!("{}:{}", addr, port)
+}
+
+async fn setup_sqlite(env: &EnvMap) -> Result<SqlitePool> {
+    let connection_string = env.var("DATABASE_URL")
+        .ok()
+        .unwrap_or_else(||String::from("sqlite://dev.db"));
+
+    let opts = SqliteConnectOptions::from_str(connection_string.as_str())?
+        .create_if_missing(true);
+
+    let pool = SqlitePool::connect_with(opts).await?;
+
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await?;
+
+    info!("Migrations applied");
+
+    Ok(pool)
 }
 
 /// Waits for a shutdown signal (Ctrl+C).

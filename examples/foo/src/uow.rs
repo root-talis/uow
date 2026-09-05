@@ -29,13 +29,12 @@ pub trait UoWFac: Clone + Send + Sync {
     async fn with_uow<F, Fut, R, E>(&self, f: F) -> Result<Result<R, E>, <Self::UoW as UoW>::Error>
     where
         F: FnOnce(Self::UoW) -> Fut + Send,
-        Fut: std::future::Future<Output = Result<TxResult<Self::UoW, R>, TxResult<Self::UoW, E>>> + Send,
+        Fut: std::future::Future<Output = (Self::UoW, Result<TxResult<R>, TxResult<E>>)> + Send,
         R: Send,
         E: Send;
 }
 
-pub enum TxResult<U: UoW, T> {
-    Commit(U, T),
-    Rollback(U, T)
+pub enum TxResult<T> {
+    Commit(T),
+    Rollback(T)
 }
-

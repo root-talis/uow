@@ -4,6 +4,7 @@ use sqlx::{Sqlite, SqlitePool, Transaction};
 use crate::uow::{TxResult, UoW, UoWFac};
 
 /// SQLx-specific UoW implementation wrapping a SQLite transaction.
+#[derive(Debug)]
 pub struct SqlxUoW {
     tx: Transaction<'static, Sqlite>,
 }
@@ -51,25 +52,30 @@ impl UoWFac for SqlxUoWFac {
     async fn with_uow<F, Fut, R, E>(&self, f: F) -> Result<Result<R, E>, <Self::UoW as UoW>::Error>
     where
         F: FnOnce(Self::UoW) -> Fut + Send,
-        Fut: std::future::Future<Output = Result<TxResult<Self::UoW, R>, TxResult<Self::UoW, E>>> + Send,
+        Fut: std::future::Future<Output = (Self::UoW, Result<TxResult<R>, TxResult<E>>)> + Send,
         R: Send,
         E: Send,
     {
         let uow = self.create().await?;
-        match f(uow).await {
-            Ok(TxResult::Commit(uow, value)) => {
+        let (uow, r) = f(uow).await;
+        match r {
+            Ok(TxResult::Commit(ok)) => {
+                // debug!("ok - commit");
                 uow.commit().await?;
-                Ok(Ok(value))
+                Ok(Ok(ok))
             }
-            Err(TxResult::Commit(uow, err)) => {
+            Err(TxResult::Commit(err)) => {
+                // debug!("err - commit");
                 uow.commit().await?;
                 Ok(Err(err))
             }
-            Ok(TxResult::Rollback(_uow, value)) => {
+            Ok(TxResult::Rollback(ok)) => {
+                // debug!("ok - rollback");
                 // Transaction is automatically rolled back when dropped
-                Ok(Ok(value))
+                Ok(Ok(ok))
             }
-            Err(TxResult::Rollback(_uow, err)) => {
+            Err(TxResult::Rollback(err)) => {
+                // debug!("err - rollback");
                 // Transaction is automatically rolled back when dropped
                 Ok(Err(err))
             }
