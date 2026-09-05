@@ -30,7 +30,7 @@ pub trait TxManager: Clone + Send + Sync {
     async fn transaction<F, Fut, R, E>(&self, callback: F) -> Result<Result<R, E>, <Self::UoW as UoW>::Error>
     where
         F: FnOnce(Self::UoW) -> Fut + Send,
-        Fut: std::future::Future<Output = (Self::UoW, Result<TxResult<R>, TxResult<E>>)> + Send,
+        Fut: std::future::Future<Output = (Self::UoW, Result<R, E>)> + Send,
         R: Send,
         E: Send;
 
@@ -50,11 +50,6 @@ pub trait TxManager: Clone + Send + Sync {
     ///     })
     /// ```
     fn isolated_at(&self, level: IsolationLevel) -> impl IsolationLevelSelector<Self>;
-}
-
-pub enum TxResult<T> {
-    Commit(T),
-    Rollback(T)
 }
 
 /// Trait for an Isolation level selector.

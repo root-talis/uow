@@ -1,7 +1,8 @@
 use thiserror::Error;
 use tracing::error;
 
-use crate::{application::ports::{BalanceReadError, BalanceRepository, TransferRepository}, uow::{IsloationLevelNotSupportedError, IsolationLevelSelector, TxManager, TxResult}};
+use crate::application::ports::{BalanceReadError, BalanceRepository, TransferRepository};
+use crate::uow::{IsloationLevelNotSupportedError, IsolationLevelSelector, TxManager};
 
 pub struct TransferRequest {
     pub from_user_id: i64,
@@ -20,7 +21,7 @@ pub enum TransferError<U: crate::uow::UoW> {
     IsolationLevelNotSupported(#[from] IsloationLevelNotSupportedError),
 
     #[error("persistence error")]
-    PersistenceError(U::Error),
+    PersistenceError(#[source] U::Error),
 
     #[error(transparent)]
     BalanceReadError(#[from] BalanceReadError<U>),
@@ -62,32 +63,32 @@ where
             .transaction(|mut uow| async {
                 let r = async {
                     let src_balance = self.balance_repo
-                        .read_balance_and_lock(&mut uow, request.from_user_id).await
-                        .map_err(|e| TxResult::Rollback(TransferError::BalanceReadError(e)))?
-                        .ok_or(TxResult::Rollback(TransferError::AccountNotAvailable { user_id: request.from_user_id }))?
+                        .read_balance_and_lock(&mut uow, request.from_user_id)
+                        .await?
+                        .ok_or(TransferError::AccountNotAvailable { user_id: request.from_user_id })?
                     ;
 
                     if src_balance < request.amount {
-                        return Err(TxResult::Rollback(TransferError::InsufficientFunds { src_user_id: request.from_user_id }))
+                        return Err(TransferError::InsufficientFunds { src_user_id: request.from_user_id })
                     }
 
                     self.balance_repo
-                        .read_balance_and_lock(&mut uow, request.to_user_id).await
-                        .map_err(|e| TxResult::Rollback(TransferError::BalanceReadError(e)))?
-                        .ok_or(TxResult::Rollback(TransferError::AccountNotAvailable { user_id: request.to_user_id }))?
+                        .read_balance_and_lock(&mut uow, request.to_user_id)
+                        .await?
+                        .ok_or(TransferError::AccountNotAvailable { user_id: request.to_user_id })?
                     ;
 
                     self.transfer_repo
                         .withdraw(&mut uow, request.from_user_id, request.amount)
                         .await
-                        .map_err(|e| TxResult::Rollback(TransferError::PersistenceError(e)))?;
+                        .map_err(TransferError::PersistenceError)?;
 
                     self.transfer_repo
                         .deposit(&mut uow, request.to_user_id, request.amount)
                         .await
-                        .map_err(|e| TxResult::Rollback(TransferError::PersistenceError(e)))?;
+                        .map_err(TransferError::PersistenceError)?;
 
-                    Ok(TxResult::Commit(()))
+                    Ok(())
                 }.await;
 
                 (uow, r)

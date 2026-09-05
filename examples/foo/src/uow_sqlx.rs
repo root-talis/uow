@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use sqlx::{Sqlite, SqlitePool, Transaction};
 
-use crate::uow::{IsloationLevelNotSupportedError, IsolationLevel, IsolationLevelSelector, TxManager, TxResult, UoW};
+use crate::uow::{IsloationLevelNotSupportedError, IsolationLevel, IsolationLevelSelector, TxManager, UoW};
 
 /// SQLx-specific UoW implementation wrapping a SQLite transaction.
 #[derive(Debug)]
@@ -56,30 +56,19 @@ impl TxManager for SqlxTxManager {
     async fn transaction<F, Fut, R, E>(&self, f: F) -> Result<Result<R, E>, <Self::UoW as UoW>::Error>
     where
         F: FnOnce(Self::UoW) -> Fut + Send,
-        Fut: std::future::Future<Output = (Self::UoW, Result<TxResult<R>, TxResult<E>>)> + Send,
+        Fut: std::future::Future<Output = (Self::UoW, Result<R, E>)> + Send,
         R: Send,
         E: Send,
     {
         let uow = self.unit_of_work().await?;
         let (uow, r) = f(uow).await;
         match r {
-            Ok(TxResult::Commit(ok)) => {
+            Ok(ok) => {
                 // debug!("ok - commit");
                 uow.commit().await?;
                 Ok(Ok(ok))
             }
-            Err(TxResult::Commit(err)) => {
-                // debug!("err - commit");
-                uow.commit().await?;
-                Ok(Err(err))
-            }
-            Ok(TxResult::Rollback(ok)) => {
-                // debug!("ok - rollback");
-                // Transaction is automatically rolled back when dropped
-                Ok(Ok(ok))
-            }
-            Err(TxResult::Rollback(err)) => {
-                // debug!("err - rollback");
+            Err(err) => {
                 // Transaction is automatically rolled back when dropped
                 Ok(Err(err))
             }
