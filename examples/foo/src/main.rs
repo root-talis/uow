@@ -14,8 +14,6 @@ mod application;
 mod container;
 mod infrastructure;
 mod api;
-mod uow;
-mod uow_sqlx;
 
 use crate::container::Container;
 

@@ -16,3 +16,4 @@ color-eyre = "0.6"
 async-trait = "0.1"
 thiserror = "2"
 dotenv-ng = "1"
+uow = { path = "../../uow", features = ["sqlx-sqlite"] }

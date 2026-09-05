@@ -1,6 +1,8 @@
 use thiserror::Error;
 
-use crate::{application::ports::{BalanceReadError, BalanceRepository}, uow::TxManager};
+use crate::application::ports::{BalanceReadError, BalanceRepository};
+
+use uow::{TxManager, UoW};
 
 pub struct GetBalanceRequest {
     pub user_id: i64,
@@ -9,7 +11,7 @@ pub struct GetBalanceRequest {
 pub type GetBalanceResult = u32;
 
 #[derive(Error, Debug)]
-pub enum GetBalanceError<U: crate::uow::UoW> {
+pub enum GetBalanceError<U: UoW> {
     #[error("persistence error")]
     PersistenceError(U::Error),
 
@@ -45,7 +47,7 @@ where
             .map_err(GetBalanceError::PersistenceError)?;
 
         let balance = self.balance_repo
-            .read_balance_and_lock(&mut uow, request.user_id).await
+            .read_balance(&mut uow, request.user_id).await
             .map_err(|e| GetBalanceError::BalanceReadError(e))?
             .ok_or(GetBalanceError::AccountNotAvailable { user_id: request.user_id })?
         ;

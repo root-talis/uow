@@ -2,7 +2,8 @@ use thiserror::Error;
 use tracing::error;
 
 use crate::application::ports::{BalanceReadError, BalanceRepository, TransferRepository};
-use crate::uow::{IsloationLevelNotSupportedError, IsolationLevelSelector, TxManager};
+
+use uow::{IsloationLevelNotSupportedError, IsolationLevel, IsolationLevelSelector, TxManager, UoW};
 
 pub struct TransferRequest {
     pub from_user_id: i64,
@@ -13,7 +14,7 @@ pub struct TransferRequest {
 pub type TransferResult = ();
 
 #[derive(Error, Debug)]
-pub enum TransferError<U: crate::uow::UoW> {
+pub enum TransferError<U: UoW> {
     #[error("source account has insufficient funds")]
     InsufficientFunds {src_user_id: i64},
 
@@ -54,13 +55,13 @@ where
 
     pub async fn execute(&self, request: TransferRequest) -> Result<TransferResult, TransferError<M::UoW>> {
         self.tx_manager
-            .isolated_at(crate::uow::IsolationLevel::RepeatableRead)
-                .or(crate::uow::IsolationLevel::Serializable)
+            .isolated_at(IsolationLevel::RepeatableRead)
+                .or(IsolationLevel::Serializable)
                 .if_platform_supports()?
             .transaction(|mut uow| async {
                 let r = async {
                     let src_balance = self.balance_repo
-                        .read_balance_and_lock(&mut uow, request.from_user_id)
+                        .read_balance(&mut uow, request.from_user_id)
                         .await?
                         .ok_or(TransferError::AccountNotAvailable { user_id: request.from_user_id })?
                     ;
@@ -70,7 +71,7 @@ where
                     }
 
                     self.balance_repo
-                        .read_balance_and_lock(&mut uow, request.to_user_id)
+                        .read_balance(&mut uow, request.to_user_id)
                         .await?
                         .ok_or(TransferError::AccountNotAvailable { user_id: request.to_user_id })?
                     ;

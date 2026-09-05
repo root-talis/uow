@@ -1,19 +1,19 @@
 use sqlx::SqlitePool;
 
 use crate::application::usecases::{GetBalanceUsecase, TransferUsecase};
-use crate::infrastructure::SqlxRepository;
-use crate::uow_sqlx::SqlxTxManager;
+use crate::infrastructure::SqliteRepository;
+use uow::sqlx::sqlite::SqliteTxManager;
 
 #[derive(Clone)]
 pub struct Container {
-    pub transfer_usecase: TransferUsecase<SqlxTxManager, SqlxRepository, SqlxRepository>,
-    pub get_balance_usecase: GetBalanceUsecase<SqlxTxManager, SqlxRepository>,
+    pub transfer_usecase: TransferUsecase<SqliteTxManager, SqliteRepository, SqliteRepository>,
+    pub get_balance_usecase: GetBalanceUsecase<SqliteTxManager, SqliteRepository>,
 }
 
 impl Container {
     pub fn new(pool: SqlitePool) -> Self {
-        let tx_man = SqlxTxManager::new(pool);
-        let repository = SqlxRepository;
+        let tx_man = SqliteTxManager::new(pool);
+        let repository = SqliteRepository;
         let transfer_usecase = TransferUsecase::new(tx_man.clone(), repository.clone(), repository.clone());
         let get_balance_usecase = GetBalanceUsecase::new(tx_man, repository);
         Self {

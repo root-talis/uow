@@ -13,8 +13,16 @@ description = "A lightweight set of types to express transaction borders in arch
 [lints.rust]
 unsafe_code = "forbid"
 
+[features]
+default = []
+
+sqlx = ["dep:sqlx"]
+sqlx-sqlite = ["sqlx", "sqlx/sqlite"]
+
 [dependencies]
-futures-core = { version = "0.3" }
+async-trait = "0.1"
+thiserror = "2"
+sqlx = { version = "0.9", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

@@ -1,16 +1,16 @@
 use async_trait::async_trait;
 
 use crate::application::ports::{BalanceReadError, BalanceRepository, TransferRepository};
-use crate::uow_sqlx::SqlxUoW;
+use uow::sqlx::sqlite::SqliteUoW;
 
 
 #[derive(Clone)]
-pub struct SqlxRepository;
+pub struct SqliteRepository;
 
 
 #[async_trait]
-impl BalanceRepository<SqlxUoW> for SqlxRepository {
-    async fn read_balance_and_lock(&self, uow: &mut SqlxUoW, user_id: i64) -> Result<Option<u32>, BalanceReadError<SqlxUoW>> {
+impl BalanceRepository<SqliteUoW> for SqliteRepository {
+    async fn read_balance(&self, uow: &mut SqliteUoW, user_id: i64) -> Result<Option<u32>, BalanceReadError<SqliteUoW>> {
         struct Balance {
             balance: i64
         }
@@ -32,8 +32,8 @@ impl BalanceRepository<SqlxUoW> for SqlxRepository {
 
 
 #[async_trait]
-impl TransferRepository<SqlxUoW> for SqlxRepository {
-    async fn withdraw(&self, uow: &mut SqlxUoW, user_id: i64, amount: u32) -> Result<(), sqlx::Error> {
+impl TransferRepository<SqliteUoW> for SqliteRepository {
+    async fn withdraw(&self, uow: &mut SqliteUoW, user_id: i64, amount: u32) -> Result<(), sqlx::Error> {
         sqlx::query("UPDATE accounts SET balance = balance - $1 WHERE id = $2")
             .bind(amount)
             .bind(user_id)
@@ -44,7 +44,7 @@ impl TransferRepository<SqlxUoW> for SqlxRepository {
         Ok(())
     }
 
-    async fn deposit(&self, uow: &mut SqlxUoW, user_id: i64, amount: u32) -> Result<(), sqlx::Error> {
+    async fn deposit(&self, uow: &mut SqliteUoW, user_id: i64, amount: u32) -> Result<(), sqlx::Error> {
         sqlx::query("UPDATE accounts SET balance = balance + $1 WHERE id = $2")
             .bind(amount)
             .bind(user_id)
