@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use crate::application::port::{BalanceReadError, BalanceRepository, TransferRepository};
+use crate::application::ports::{BalanceReadError, BalanceRepository, TransferRepository};
 use crate::uow_sqlx::SqlxUoW;
 
 

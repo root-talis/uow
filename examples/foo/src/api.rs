@@ -33,7 +33,7 @@ async fn transfer_handler(
     State(container): State<Container>,
     Json(payload): Json<TransferRequest>,
 ) -> impl IntoResponse {
-    let req = super::application::TransferRequest {
+    let req = super::application::usecases::TransferRequest {
         from_user_id: payload.from_user_id,
         to_user_id:   payload.to_user_id,
         amount:       payload.amount,
@@ -67,7 +67,7 @@ async fn get_balance_handler(
     State(container): State<Container>,
     Query(payload): Query<GetBalanceRequest>,
 ) -> impl IntoResponse {
-    let req = super::application::GetBalanceRequest {
+    let req = super::application::usecases::GetBalanceRequest {
         user_id: payload.user_id,
     };
 

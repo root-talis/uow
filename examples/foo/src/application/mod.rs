@@ -1,7 +1,3 @@
-mod get_balance;
-mod transfer;
+pub mod usecases;
 
-pub use get_balance::*;
-pub use transfer::*;
-
-pub mod port;
+pub mod ports;

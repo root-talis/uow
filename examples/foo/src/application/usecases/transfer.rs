@@ -1,7 +1,7 @@
 use thiserror::Error;
 use tracing::error;
 
-use crate::{application::port::{BalanceReadError, BalanceRepository, TransferRepository}, uow::{IsloationLevelNotSupportedError, IsolationLevelSelector, TxManager, TxResult}};
+use crate::{application::ports::{BalanceReadError, BalanceRepository, TransferRepository}, uow::{IsloationLevelNotSupportedError, IsolationLevelSelector, TxManager, TxResult}};
 
 pub struct TransferRequest {
     pub from_user_id: i64,

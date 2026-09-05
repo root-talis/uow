@@ -13,7 +13,7 @@ use color_eyre::eyre::{Result, WrapErr};
 mod application;
 mod container;
 mod infrastructure;
-mod presentation;
+mod api;
 mod uow;
 mod uow_sqlx;
 
@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
     let container = Container::new(pool);
 
     // Create the router with request tracing.
-    let app = presentation::foo_router(container).layer(tower_http::trace::TraceLayer::new_for_http());
+    let app = api::foo_router(container).layer(tower_http::trace::TraceLayer::new_for_http());
 
     let listener = TcpListener::bind(&addr).await.expect("Failed to bind TCP listener");
     info!("Server listening on http://{}", addr);

@@ -1,7 +1,6 @@
 use thiserror::Error;
-use tracing::error;
 
-use crate::{application::port::{BalanceReadError, BalanceRepository}, uow::{TxResult, TxManager}};
+use crate::{application::ports::{BalanceReadError, BalanceRepository}, uow::TxManager};
 
 pub struct GetBalanceRequest {
     pub user_id: i64,

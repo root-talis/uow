@@ -1,6 +1,6 @@
 use sqlx::SqlitePool;
 
-use crate::application::{GetBalanceUsecase, TransferUsecase};
+use crate::application::usecases::{GetBalanceUsecase, TransferUsecase};
 use crate::infrastructure::SqlxRepository;
 use crate::uow_sqlx::SqlxTxManager;
 
