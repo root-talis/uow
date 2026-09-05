@@ -13,5 +13,8 @@ description = "A lightweight set of types to express transaction borders in arch
 [lints.rust]
 unsafe_code = "forbid"
 
+[dependencies]
+futures-core = { version = "0.3" }
+
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
