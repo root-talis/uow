@@ -27,7 +27,7 @@ pub trait TxManager: Clone + Send + Sync {
     ///
     /// The closure takes ownership of the Unit of Work and returns it along with the result,
     /// avoiding lifetime issues with async closures.
-    async fn transaction<F, Fut, R, E>(&self, callback: F) -> Result<Result<R, E>, <Self::UoW as UoW>::Error>
+    async fn transaction<F, Fut, R, E>(&self, callback: F) -> Result<Result<R, E>, TransactionError<Self::UoW>>
     where
         F: FnOnce(Self::UoW) -> Fut + Send,
         Fut: std::future::Future<Output = (Self::UoW, Result<R, E>)> + Send,
@@ -50,6 +50,28 @@ pub trait TxManager: Clone + Send + Sync {
     ///     })
     /// ```
     fn isolated_at(&self, level: IsolationLevel) -> impl IsolationLevelSelector<Self>;
+}
+
+/// Represents failure modes of TxManager::transaction internal logic.
+#[derive(Error, Debug)]
+pub enum TransactionError<U: UoW> {
+    /// A platform error has occured when starting transaction.
+    #[error("failed to start a unit of work")]
+    BeginFailed(#[source] U::Error),
+
+    /// A platform error has occured when commiting transaction.
+    #[error("failed to commit a unit of work")]
+    CommitFailed(#[source] U::Error),
+}
+
+impl <U: UoW> TransactionError<U> {
+    /// Returns platform error discarding details about it's origin.
+    pub fn into_inner(self) -> U::Error {
+        match self {
+            TransactionError::BeginFailed(e)  => e,
+            TransactionError::CommitFailed(e) => e,
+        }
+    } 
 }
 
 /// Trait for an Isolation level selector.

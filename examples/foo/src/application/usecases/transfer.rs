@@ -52,10 +52,7 @@ where
         Self { tx_manager, transfer_repo, balance_repo }
     }
 
-    pub async fn execute(
-        &self,
-        request: TransferRequest,
-    ) -> Result<TransferResult, TransferError<M::UoW>> {
+    pub async fn execute(&self, request: TransferRequest) -> Result<TransferResult, TransferError<M::UoW>> {
         self.tx_manager
             .isolated_at(crate::uow::IsolationLevel::RepeatableRead)
                 .or(crate::uow::IsolationLevel::Serializable)
@@ -95,8 +92,8 @@ where
             })
             .await
             .map_err(|e| {
-                error!(e = e.to_string(), "failed to commit transaction");
-                TransferError::PersistenceError(e)
+                error!(e = e.to_string(), "transaction error");
+                TransferError::PersistenceError(e.into_inner())
             })?
     }
 }

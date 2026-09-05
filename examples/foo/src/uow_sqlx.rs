@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use sqlx::{Sqlite, SqlitePool, Transaction};
 
-use crate::uow::{IsloationLevelNotSupportedError, IsolationLevel, IsolationLevelSelector, TxManager, UoW};
+use crate::uow::{IsloationLevelNotSupportedError, IsolationLevel, IsolationLevelSelector, TransactionError, TxManager, UoW};
 
 /// SQLx-specific UoW implementation wrapping a SQLite transaction.
 #[derive(Debug)]
@@ -53,19 +53,19 @@ impl TxManager for SqlxTxManager {
         Ok(SqlxUoW::new(tx))
     }
 
-    async fn transaction<F, Fut, R, E>(&self, f: F) -> Result<Result<R, E>, <Self::UoW as UoW>::Error>
+    async fn transaction<F, Fut, R, E>(&self, f: F) -> Result<Result<R, E>, TransactionError<Self::UoW>>
     where
         F: FnOnce(Self::UoW) -> Fut + Send,
         Fut: std::future::Future<Output = (Self::UoW, Result<R, E>)> + Send,
         R: Send,
         E: Send,
     {
-        let uow = self.unit_of_work().await?;
+        let uow = self.unit_of_work().await.map_err(TransactionError::BeginFailed)?;
         let (uow, r) = f(uow).await;
         match r {
             Ok(ok) => {
                 // debug!("ok - commit");
-                uow.commit().await?;
+                uow.commit().await.map_err(TransactionError::CommitFailed)?;
                 Ok(Ok(ok))
             }
             Err(err) => {
