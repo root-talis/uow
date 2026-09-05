@@ -49,6 +49,7 @@ impl TxManager for SqliteTxManager {
     type UoW = SqliteUoW;
 
     async fn unit_of_work(&self) -> Result<Self::UoW, <Self::UoW as UoW>::Error> {
+        // todo: make it respect isolation_level!
         let tx = self.pool.begin().await?;
         Ok(SqliteUoW::new(tx))
     }

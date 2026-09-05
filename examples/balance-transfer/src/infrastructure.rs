@@ -1,6 +1,9 @@
-use async_trait::async_trait;
+use std::num::{NonZeroI64, NonZeroU32, TryFromIntError};
 
-use crate::application::ports::{BalanceReadError, BalanceRepository, TransferRepository};
+use async_trait::async_trait;
+use axum::extract::FromRef;
+
+use crate::{application::{errors::StorageError, ports::AccountsRepository}, domain::{entities::Account, value_objects::{AccountNumber, CreditsAmount}}};
 use uow::sqlx::sqlite::SqliteUoW;
 
 
@@ -9,49 +12,92 @@ pub struct SqliteRepository;
 
 
 #[async_trait]
-impl BalanceRepository<SqliteUoW> for SqliteRepository {
-    async fn read_balance(&self, uow: &mut SqliteUoW, user_id: i64) -> Result<Option<u32>, BalanceReadError<SqliteUoW>> {
-        struct Balance {
-            balance: i64
-        }
-
-        let row = sqlx::query_as!(Balance, "SELECT balance FROM accounts WHERE id = $1", user_id)
+impl AccountsRepository<SqliteUoW> for SqliteRepository {
+    async fn get_account(&self, uow: &mut SqliteUoW, account_number: AccountNumber) -> Result<Option<Account>, StorageError<SqliteUoW>> {
+        let acc = sqlx::query_as!(AccountData, "SELECT id, balance FROM accounts WHERE id = $1", account_number.inner())
             .fetch_optional(&mut **uow.tx_mut())
             .await
-            .map_err(BalanceReadError::PlatformError)?
-        ;
+            .map_err(StorageError::PlatformError)?;
 
-        let balance = row
-            .map(|v| v.balance.try_into())
-            .transpose()?
-        ;
+        let Some(acc) = acc else {
+            return Ok(None);
+        };
 
-        Ok(balance)
+        let acc: Account = acc.try_into().map_err(|e| StorageError::StorageFormatError(Box::new(e)))?;
+
+        Ok(Some(acc))
+    }
+
+    async fn save_account(&self, uow: &mut SqliteUoW, account: &Account) -> Result<(), StorageError<SqliteUoW>> {
+        let account_data: AccountData = FromRef::from_ref(account);
+
+        sqlx::query!("UPDATE accounts SET balance = $1 WHERE id = $2", account_data.balance, account_data.id)
+            .execute(&mut **uow.tx_mut())
+            .await
+            .map_err(StorageError::PlatformError)?;
+        
+        Ok(())
+    }
+}
+
+/// Temporary struct to read account data from Sqlite db
+struct AccountData {
+    id:      i64,
+    balance: i64,
+}
+
+/// Convert sqlite account table data into Account entity
+impl TryInto<Account> for AccountData {
+    type Error = TryFromIntError;
+
+    fn try_into(self) -> Result<Account, Self::Error> {
+        Ok(Account::new(
+            self.id.try_into()?,
+            self.balance.try_into()?
+        ))
+    }
+}
+
+impl FromRef<Account> for AccountData {
+    fn from_ref(value: &Account) -> Self {
+        Self {
+            id:      FromRef::from_ref(value.number()),
+            balance: FromRef::from_ref(value.balance()),
+        }
     }
 }
 
 
-#[async_trait]
-impl TransferRepository<SqliteUoW> for SqliteRepository {
-    async fn withdraw(&self, uow: &mut SqliteUoW, user_id: i64, amount: u32) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE accounts SET balance = balance - $1 WHERE id = $2")
-            .bind(amount)
-            .bind(user_id)
-            .execute(&mut **uow.tx_mut())
-            .await?
-        ;
+/// Read AccountNumber from the way it is stored in Sqlite
+impl TryInto<AccountNumber> for i64 {
+    type Error = TryFromIntError;
 
-        Ok(())
+    fn try_into(self) -> Result<AccountNumber, Self::Error> {
+        let accid: NonZeroI64 = self.try_into()?;
+        let accid: NonZeroU32 = accid.try_into()?;
+        Ok(AccountNumber::new(accid))
     }
+}
 
-    async fn deposit(&self, uow: &mut SqliteUoW, user_id: i64, amount: u32) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE accounts SET balance = balance + $1 WHERE id = $2")
-            .bind(amount)
-            .bind(user_id)
-            .execute(&mut **uow.tx_mut())
-            .await?
-        ;
+impl FromRef<AccountNumber> for i64 {
+    fn from_ref(value: &AccountNumber) -> Self {
+        let u32: u32 = (*value.inner()).into();
+        u32.into()
+    }
+}
 
-        Ok(())
+
+/// Read CreditsAmount from the way it is stored in Sqlite
+impl TryInto<CreditsAmount> for i64 {
+    type Error = TryFromIntError;
+
+    fn try_into(self) -> Result<CreditsAmount, Self::Error> {
+        Ok(CreditsAmount::new(self.try_into()?))
+    }
+}
+
+impl FromRef<CreditsAmount> for i64 {
+    fn from_ref(value: &CreditsAmount) -> Self {
+       (*value.inner()).into()
     }
 }

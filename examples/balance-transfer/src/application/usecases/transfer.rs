@@ -1,56 +1,50 @@
 use thiserror::Error;
 use tracing::error;
 
-use crate::application::ports::{BalanceReadError, BalanceRepository, TransferRepository};
+use crate::{application::{errors::StorageError, ports::AccountsRepository}, domain::{self, services::transfer_credits, value_objects::{AccountNumber, CreditsAmount}}};
 
 use uow::{IsloationLevelNotSupportedError, IsolationLevel, IsolationLevelSelector, TxManager, UoW};
 
 pub struct TransferRequest {
-    pub from_user_id: i64,
-    pub to_user_id: i64,
-    pub amount: u32,
+    pub from:   AccountNumber,
+    pub to:     AccountNumber,
+    pub amount: CreditsAmount,
 }
 
 pub type TransferResult = ();
 
 #[derive(Error, Debug)]
 pub enum TransferError<U: UoW> {
-    #[error("source account has insufficient funds")]
-    InsufficientFunds {src_user_id: i64},
+    #[error("account not available: {_0}")]
+    AccountNotAvailable(AccountNumber),
 
-    #[error("platform doesnt support isolation level")]
+    #[error("failed to transfer credits: {_0}")]
+    TransferFailed(#[from] #[source] domain::errors::TransferFailure),
+
+    #[error("internal error")]
     IsolationLevelNotSupported(#[from] IsloationLevelNotSupportedError),
 
-    #[error("persistence error")]
-    PersistenceError(#[source] U::Error),
-
-    #[error(transparent)]
-    BalanceReadError(#[from] BalanceReadError<U>),
-
-    #[error("account not available: {user_id}")]
-    AccountNotAvailable{ user_id: i64 },
+    #[error("internal error")]
+    StorageError(#[from] #[source] StorageError<U>),
 }
 
 #[derive(Clone)]
-pub struct TransferUsecase<M, TrR, BaR> 
+pub struct TransferUsecase<M, A> 
 where
     M: TxManager,
-    TrR: TransferRepository<M::UoW>,
-    BaR: BalanceRepository<M::UoW>
+    A: AccountsRepository<M::UoW>
 {
     tx_manager: M,
-    transfer_repo: TrR,
-    balance_repo: BaR,
+    accounts_repo: A,
 }
 
-impl<M, TrR, BaR> TransferUsecase<M, TrR, BaR>
+impl<M, A> TransferUsecase<M, A>
 where
     M: TxManager,
-    TrR: TransferRepository<M::UoW>,
-    BaR: BalanceRepository<M::UoW>
+    A: AccountsRepository<M::UoW>
 {
-    pub fn new(tx_manager: M, transfer_repo: TrR, balance_repo: BaR) -> Self {
-        Self { tx_manager, transfer_repo, balance_repo }
+    pub fn new(tx_manager: M, accounts_repo: A) -> Self {
+        Self { tx_manager, accounts_repo }
     }
 
     pub async fn execute(&self, request: TransferRequest) -> Result<TransferResult, TransferError<M::UoW>> {
@@ -60,31 +54,22 @@ where
                 .if_platform_supports()?
             .transaction(|mut uow| async {
                 let r = async {
-                    let src_balance = self.balance_repo
-                        .read_balance(&mut uow, request.from_user_id)
+                    let mut from_account = self.accounts_repo
+                        .get_account(&mut uow, request.from)
                         .await?
-                        .ok_or(TransferError::AccountNotAvailable { user_id: request.from_user_id })?
+                        .ok_or(TransferError::AccountNotAvailable(request.from))?
                     ;
 
-                    if src_balance < request.amount {
-                        return Err(TransferError::InsufficientFunds { src_user_id: request.from_user_id })
-                    }
-
-                    self.balance_repo
-                        .read_balance(&mut uow, request.to_user_id)
+                    let mut to_account = self.accounts_repo
+                        .get_account(&mut uow, request.to)
                         .await?
-                        .ok_or(TransferError::AccountNotAvailable { user_id: request.to_user_id })?
+                        .ok_or(TransferError::AccountNotAvailable(request.to))?
                     ;
 
-                    self.transfer_repo
-                        .withdraw(&mut uow, request.from_user_id, request.amount)
-                        .await
-                        .map_err(TransferError::PersistenceError)?;
+                    transfer_credits(&mut from_account, request.amount, &mut to_account)?;
 
-                    self.transfer_repo
-                        .deposit(&mut uow, request.to_user_id, request.amount)
-                        .await
-                        .map_err(TransferError::PersistenceError)?;
+                    self.accounts_repo.save_account(&mut uow, &from_account).await?;
+                    self.accounts_repo.save_account(&mut uow, &to_account).await?;
 
                     Ok(())
                 }.await;
@@ -94,7 +79,7 @@ where
             .await
             .map_err(|e| {
                 error!(e = e.to_string(), "transaction error");
-                TransferError::PersistenceError(e.into_inner())
+                TransferError::StorageError(StorageError::PlatformError(e.into_inner()))
             })?
     }
 }

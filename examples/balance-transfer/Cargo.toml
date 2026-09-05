@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+uow = { path = "../../uow", features = ["sqlx-sqlite"] }
+
 tokio = { version = "1", features = ["full"] }
 axum = "0.8"
 serde = { version = "1", features = ["derive"] }
@@ -16,4 +18,4 @@ color-eyre = "0.6"
 async-trait = "0.1"
 thiserror = "2"
 dotenv-ng = "1"
-uow = { path = "../../uow", features = ["sqlx-sqlite"] }
+derive_more = { version = "2.1", features = ["display"] }

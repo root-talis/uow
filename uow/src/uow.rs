@@ -20,6 +20,7 @@ pub trait TxManager: Clone + Send + Sync {
     type UoW: UoW;
 
     /// Create a new Unit of Work instance.
+    #[must_use]
     async fn unit_of_work(&self) -> Result<Self::UoW, <Self::UoW as UoW>::Error>;
 
     /// Execute a closure within a Unit of Work, automatically committing on success
@@ -27,6 +28,7 @@ pub trait TxManager: Clone + Send + Sync {
     ///
     /// The closure takes ownership of the Unit of Work and returns it along with the result,
     /// avoiding lifetime issues with async closures.
+    #[must_use]
     async fn transaction<F, Fut, R, E>(&self, callback: F) -> Result<Result<R, E>, TransactionError<Self::UoW>>
     where
         F: FnOnce(Self::UoW) -> Fut + Send,
@@ -49,6 +51,7 @@ pub trait TxManager: Clone + Send + Sync {
     ///       // ...
     ///     })
     /// ```
+    #[must_use]
     fn isolated_at(&self, level: IsolationLevel) -> impl IsolationLevelSelector<Self>;
 }
 
@@ -84,12 +87,14 @@ pub trait IsolationLevelSelector<M: TxManager> {
     /// are not supported by the plaform.
     /// 
     /// Used to configure a chain of fallbacks.
+    #[must_use]
     fn or(self, level: IsolationLevel) -> Self;
 
     /// Returns a new Transaction manager with configured isolation level.
     /// 
     /// If none of specified isolation levels are supporetd by the underlying platform,
     /// returns "IsloationLevelNotSupportedError"
+    #[must_use]
     fn if_platform_supports(self) -> Result<M, IsloationLevelNotSupportedError>;
 }
 

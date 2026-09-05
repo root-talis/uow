@@ -10,16 +10,18 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use color_eyre::eyre::{Result, WrapErr};
 
-mod application;
 mod container;
-mod infrastructure;
+
+// Onion layers:
 mod api;
+mod infrastructure;
+mod application;
+mod domain;
 
 use crate::container::Container;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize tracing with an env-filter.
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -34,18 +36,19 @@ async fn main() -> Result<()> {
         .load()?;
 
     let addr = get_listen_addr(&env);
-    let pool = setup_sqlite(&env).await?;
 
+    let pool = setup_sqlite(&env).await?;
     let container = Container::new(pool);
 
-    // Create the router with request tracing.
-    let app = api::foo_router(container).layer(tower_http::trace::TraceLayer::new_for_http());
+    let router = api::create_router()
+        .with_state(container)
+        .layer(tower_http::trace::TraceLayer::new_for_http());
 
     let listener = TcpListener::bind(&addr).await.expect("Failed to bind TCP listener");
     info!("Server listening on http://{}", addr);
 
     // Serve with graceful shutdown.
-    axum::serve(listener, app)
+    axum::serve(listener, router)
         .with_graceful_shutdown(shutdown_signal())
         .await
         .wrap_err("server failed")
