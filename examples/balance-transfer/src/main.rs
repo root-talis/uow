@@ -1,7 +1,7 @@
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
-use dotenv::{EnvLoader, EnvMap};
+use dotenv::{EnvLoader, EnvMap, EnvSequence};
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::SqlitePool;
 use tokio::net::TcpListener;
@@ -23,12 +23,15 @@ async fn main() -> Result<()> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "foo=debug,tower_http=debug".into()),
+                .unwrap_or_else(|_| "balance_transfer=debug,tower_http=debug".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let env = EnvLoader::with_paths(["./examples/foo/.env"]).load()?;
+    let env = EnvLoader::with_paths(["examples/balance-transfer/.env", ".env"])
+        .required(false)
+        .sequence(EnvSequence::InputThenEnv)
+        .load()?;
 
     let addr = get_listen_addr(&env);
     let pool = setup_sqlite(&env).await?;
