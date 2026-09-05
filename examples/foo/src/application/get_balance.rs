@@ -41,7 +41,7 @@ where
     }
 
     pub async fn execute(&self, request: GetBalanceRequest) -> Result<GetBalanceResult, GetBalanceError<M::UoW>> {
-        self.tr.transactional(|mut uow| async {
+        self.tr.transaction(|mut uow| async {
             let r = async {
                 let balance = self.balance_repo
                     .read_balance_and_lock(&mut uow, request.user_id).await

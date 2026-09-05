@@ -1,2 +1,2 @@
 .env
-dev.db
+dev.db*

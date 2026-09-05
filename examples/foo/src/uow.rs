@@ -27,7 +27,7 @@ pub trait TxManager: Clone + Send + Sync {
     ///
     /// The closure takes ownership of the Unit of Work and returns it along with the result,
     /// avoiding lifetime issues with async closures.
-    async fn transactional<F, Fut, R, E>(&self, callback: F) -> Result<Result<R, E>, <Self::UoW as UoW>::Error>
+    async fn transaction<F, Fut, R, E>(&self, callback: F) -> Result<Result<R, E>, <Self::UoW as UoW>::Error>
     where
         F: FnOnce(Self::UoW) -> Fut + Send,
         Fut: std::future::Future<Output = (Self::UoW, Result<TxResult<R>, TxResult<E>>)> + Send,

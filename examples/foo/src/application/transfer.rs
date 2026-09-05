@@ -1,7 +1,7 @@
 use thiserror::Error;
 use tracing::error;
 
-use crate::{application::port::{BalanceReadError, BalanceRepository, TransferRepository}, uow::{TxResult, TxManager}};
+use crate::{application::port::{BalanceReadError, BalanceRepository, TransferRepository}, uow::{TxManager, TxResult, UoW}};
 
 pub struct TransferRequest {
     pub from_user_id: i64,
@@ -33,7 +33,7 @@ where
     TrR: TransferRepository<M::UoW>,
     BaR: BalanceRepository<M::UoW>
 {
-    tx_man: M,
+    tr: M,
     transfer_repo: TrR,
     balance_repo: BaR,
 }
@@ -44,15 +44,15 @@ where
     TrR: TransferRepository<M::UoW>,
     BaR: BalanceRepository<M::UoW>
 {
-    pub fn new(tx_man: M, transfer_repo: TrR, balance_repo: BaR) -> Self {
-        Self { tx_man, transfer_repo, balance_repo }
+    pub fn new(tr: M, transfer_repo: TrR, balance_repo: BaR) -> Self {
+        Self { tr, transfer_repo, balance_repo }
     }
 
     pub async fn execute(
         &self,
         request: TransferRequest,
     ) -> Result<TransferResult, TransferError<M::UoW>> {
-        self.tx_man.transactional(|mut uow| async {
+        self.tr.transaction(|mut uow| async {
             let r = async {
                 let src_balance = self.balance_repo
                     .read_balance_and_lock(&mut uow, request.from_user_id).await
