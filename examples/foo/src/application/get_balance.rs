@@ -27,7 +27,7 @@ where
     M: TxManager,
     BaR: BalanceRepository<M::UoW>
 {
-    tr: M,
+    tx_manager: M,
     balance_repo: BaR,
 }
 
@@ -36,29 +36,21 @@ where
     M: TxManager,
     BaR: BalanceRepository<M::UoW>
 {
-    pub fn new(tr: M, balance_repo: BaR) -> Self {
-        Self { tr, balance_repo }
+    pub fn new(tx_manager: M, balance_repo: BaR) -> Self {
+        Self { tx_manager, balance_repo }
     }
 
     pub async fn execute(&self, request: GetBalanceRequest) -> Result<GetBalanceResult, GetBalanceError<M::UoW>> {
-        self.tr.transaction(|mut uow| async {
-            let r = async {
-                let balance = self.balance_repo
-                    .read_balance_and_lock(&mut uow, request.user_id).await
-                    .map_err(|e| TxResult::Rollback(GetBalanceError::BalanceReadError(e)))?
-                    .ok_or(TxResult::Rollback(GetBalanceError::AccountNotAvailable { user_id: request.user_id }))?
-                ;
+        let mut uow = self.tx_manager.unit_of_work()
+            .await
+            .map_err(GetBalanceError::PersistenceError)?;
 
-                Ok(TxResult::Commit(balance))
-            }.await;
+        let balance = self.balance_repo
+            .read_balance_and_lock(&mut uow, request.user_id).await
+            .map_err(|e| GetBalanceError::BalanceReadError(e))?
+            .ok_or(GetBalanceError::AccountNotAvailable { user_id: request.user_id })?
+        ;
 
-            (uow, r)
-        })
-        .await
-        .map_err(|e| {
-            error!(e = e.to_string(), "failed to commit transaction");
-            GetBalanceError::PersistenceError(e)
-        })?
+        Ok(balance)
     }
 }
-

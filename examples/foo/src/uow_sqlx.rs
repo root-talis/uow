@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use sqlx::{Sqlite, SqlitePool, Transaction};
 
-use crate::uow::{TxResult, UoW, TxManager};
+use crate::uow::{IsloationLevelNotSupportedError, IsolationLevel, IsolationLevelSelector, TxManager, TxResult, UoW};
 
 /// SQLx-specific UoW implementation wrapping a SQLite transaction.
 #[derive(Debug)]
@@ -32,11 +32,15 @@ impl UoW for SqlxUoW {
 #[derive(Clone)]
 pub struct SqlxTxManager {
     pool: SqlitePool,
+    isolation_level: Option<IsolationLevel>,
 }
 
 impl SqlxTxManager {
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            isolation_level: None,
+        }
     }
 }
 
@@ -44,7 +48,7 @@ impl SqlxTxManager {
 impl TxManager for SqlxTxManager {
     type UoW = SqlxUoW;
 
-    async fn create(&self) -> Result<Self::UoW, <Self::UoW as UoW>::Error> {
+    async fn unit_of_work(&self) -> Result<Self::UoW, <Self::UoW as UoW>::Error> {
         let tx = self.pool.begin().await?;
         Ok(SqlxUoW::new(tx))
     }
@@ -56,7 +60,7 @@ impl TxManager for SqlxTxManager {
         R: Send,
         E: Send,
     {
-        let uow = self.create().await?;
+        let uow = self.unit_of_work().await?;
         let (uow, r) = f(uow).await;
         match r {
             Ok(TxResult::Commit(ok)) => {
@@ -80,5 +84,47 @@ impl TxManager for SqlxTxManager {
                 Ok(Err(err))
             }
         }
+    }
+
+    fn isolated_at(&self, level: IsolationLevel) -> impl IsolationLevelSelector<Self> {
+        SqlxIsolationLevelSelector::new(self.clone(), level)
+    }
+}
+
+pub struct SqlxIsolationLevelSelector {
+    man: SqlxTxManager,
+    level: Option<IsolationLevel>,
+}
+
+impl SqlxIsolationLevelSelector {
+    fn new(man: SqlxTxManager, level: IsolationLevel) -> Self {
+        Self {
+            man,
+            level: Self::if_supported(level),
+        }
+    }
+
+    fn if_supported(level: IsolationLevel) -> Option<IsolationLevel> {
+        match level {
+            IsolationLevel::Serializable | IsolationLevel::ReadUncommitted => Some(level),
+            _ => None,
+        }
+    }
+}
+
+impl IsolationLevelSelector<SqlxTxManager> for SqlxIsolationLevelSelector {
+
+    fn or(mut self, level: IsolationLevel) -> Self {
+        self.level = self.level.or_else(|| Self::if_supported(level));
+        self
+    }
+
+    fn if_platform_supports(mut self) -> Result<SqlxTxManager, IsloationLevelNotSupportedError> {
+        if self.level.is_none() {
+            return Err(IsloationLevelNotSupportedError{});
+        }
+
+        self.man.isolation_level = self.level;
+        Ok(self.man)
     }
 }
