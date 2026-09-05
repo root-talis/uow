@@ -11,22 +11,23 @@ pub trait UoW: Send {
     async fn commit(self) -> Result<(), Self::Error>;
 }
 
-/// Trait for a Unit of Work factory.
+/// Trait for a Transaction manager.
 /// Creates UoW instances with a specific error type.
+/// Allows different data source backends to be plugged in.
 #[async_trait]
-pub trait UoWFac: Clone + Send + Sync {
-    /// The type of UoW this factory creates.
+pub trait TxManager: Clone + Send + Sync {
+    /// The type of Unit of Work this manager creates.
     type UoW: UoW;
 
-    /// Create a new UoW instance.
+    /// Create a new Unit of Work instance.
     async fn create(&self) -> Result<Self::UoW, <Self::UoW as UoW>::Error>;
 
-    /// Execute a closure within a UoW, automatically committing on success
+    /// Execute a closure within a Unit of Work, automatically committing on success
     /// or rolling back on failure.
     ///
-    /// The closure takes ownership of the UoW and returns it along with the result,
+    /// The closure takes ownership of the Unit of Work and returns it along with the result,
     /// avoiding lifetime issues with async closures.
-    async fn with_uow<F, Fut, R, E>(&self, f: F) -> Result<Result<R, E>, <Self::UoW as UoW>::Error>
+    async fn transactional<F, Fut, R, E>(&self, callback: F) -> Result<Result<R, E>, <Self::UoW as UoW>::Error>
     where
         F: FnOnce(Self::UoW) -> Fut + Send,
         Fut: std::future::Future<Output = (Self::UoW, Result<TxResult<R>, TxResult<E>>)> + Send,

@@ -1,7 +1,7 @@
 use thiserror::Error;
 use tracing::error;
 
-use crate::{application::port::{BalanceReadError, BalanceRepository}, uow::{TxResult, UoWFac}};
+use crate::{application::port::{BalanceReadError, BalanceRepository}, uow::{TxResult, TxManager}};
 
 pub struct GetBalanceRequest {
     pub user_id: i64,
@@ -22,26 +22,26 @@ pub enum GetBalanceError<U: crate::uow::UoW> {
 }
 
 #[derive(Clone)]
-pub struct GetBalanceUsecase<F, BaR> 
+pub struct GetBalanceUsecase<M, BaR> 
 where
-    F: UoWFac,
-    BaR: BalanceRepository<F::UoW>
+    M: TxManager,
+    BaR: BalanceRepository<M::UoW>
 {
-    uow_fac: F,
+    tr: M,
     balance_repo: BaR,
 }
 
-impl <F, BaR> GetBalanceUsecase<F, BaR>
+impl <M, BaR> GetBalanceUsecase<M, BaR>
 where
-    F: UoWFac,
-    BaR: BalanceRepository<F::UoW>
+    M: TxManager,
+    BaR: BalanceRepository<M::UoW>
 {
-    pub fn new(uow_fac: F, balance_repo: BaR) -> Self {
-        Self { uow_fac, balance_repo }
+    pub fn new(tr: M, balance_repo: BaR) -> Self {
+        Self { tr, balance_repo }
     }
 
-    pub async fn execute(&self, request: GetBalanceRequest) -> Result<GetBalanceResult, GetBalanceError<F::UoW>> {
-        self.uow_fac.with_uow(|mut uow| async {
+    pub async fn execute(&self, request: GetBalanceRequest) -> Result<GetBalanceResult, GetBalanceError<M::UoW>> {
+        self.tr.transactional(|mut uow| async {
             let r = async {
                 let balance = self.balance_repo
                     .read_balance_and_lock(&mut uow, request.user_id).await

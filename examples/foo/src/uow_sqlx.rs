@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use sqlx::{Sqlite, SqlitePool, Transaction};
 
-use crate::uow::{TxResult, UoW, UoWFac};
+use crate::uow::{TxResult, UoW, TxManager};
 
 /// SQLx-specific UoW implementation wrapping a SQLite transaction.
 #[derive(Debug)]
@@ -30,18 +30,18 @@ impl UoW for SqlxUoW {
 
 /// SQLx-specific UoW factory.
 #[derive(Clone)]
-pub struct SqlxUoWFac {
+pub struct SqlxTxManager {
     pool: SqlitePool,
 }
 
-impl SqlxUoWFac {
+impl SqlxTxManager {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 }
 
 #[async_trait]
-impl UoWFac for SqlxUoWFac {
+impl TxManager for SqlxTxManager {
     type UoW = SqlxUoW;
 
     async fn create(&self) -> Result<Self::UoW, <Self::UoW as UoW>::Error> {
@@ -49,7 +49,7 @@ impl UoWFac for SqlxUoWFac {
         Ok(SqlxUoW::new(tx))
     }
 
-    async fn with_uow<F, Fut, R, E>(&self, f: F) -> Result<Result<R, E>, <Self::UoW as UoW>::Error>
+    async fn transactional<F, Fut, R, E>(&self, f: F) -> Result<Result<R, E>, <Self::UoW as UoW>::Error>
     where
         F: FnOnce(Self::UoW) -> Fut + Send,
         Fut: std::future::Future<Output = (Self::UoW, Result<TxResult<R>, TxResult<E>>)> + Send,

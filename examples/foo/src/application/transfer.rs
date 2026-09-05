@@ -1,7 +1,7 @@
 use thiserror::Error;
 use tracing::error;
 
-use crate::{application::port::{BalanceReadError, BalanceRepository, TransferRepository}, uow::{TxResult, UoWFac}};
+use crate::{application::port::{BalanceReadError, BalanceRepository, TransferRepository}, uow::{TxResult, TxManager}};
 
 pub struct TransferRequest {
     pub from_user_id: i64,
@@ -27,32 +27,32 @@ pub enum TransferError<U: crate::uow::UoW> {
 }
 
 #[derive(Clone)]
-pub struct TransferUsecase<F, TrR, BaR> 
+pub struct TransferUsecase<M, TrR, BaR> 
 where
-    F: UoWFac,
-    TrR: TransferRepository<F::UoW>,
-    BaR: BalanceRepository<F::UoW>
+    M: TxManager,
+    TrR: TransferRepository<M::UoW>,
+    BaR: BalanceRepository<M::UoW>
 {
-    uow_fac: F,
+    tx_man: M,
     transfer_repo: TrR,
     balance_repo: BaR,
 }
 
-impl<F, TrR, BaR> TransferUsecase<F, TrR, BaR>
+impl<M, TrR, BaR> TransferUsecase<M, TrR, BaR>
 where
-    F: UoWFac,
-    TrR: TransferRepository<F::UoW>,
-    BaR: BalanceRepository<F::UoW>
+    M: TxManager,
+    TrR: TransferRepository<M::UoW>,
+    BaR: BalanceRepository<M::UoW>
 {
-    pub fn new(uow_fac: F, transfer_repo: TrR, balance_repo: BaR) -> Self {
-        Self { uow_fac, transfer_repo, balance_repo }
+    pub fn new(tx_man: M, transfer_repo: TrR, balance_repo: BaR) -> Self {
+        Self { tx_man, transfer_repo, balance_repo }
     }
 
     pub async fn execute(
         &self,
         request: TransferRequest,
-    ) -> Result<TransferResult, TransferError<F::UoW>> {
-        self.uow_fac.with_uow(|mut uow| async {
+    ) -> Result<TransferResult, TransferError<M::UoW>> {
+        self.tx_man.transactional(|mut uow| async {
             let r = async {
                 let src_balance = self.balance_repo
                     .read_balance_and_lock(&mut uow, request.from_user_id).await
