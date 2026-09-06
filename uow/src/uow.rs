@@ -107,7 +107,7 @@ pub struct IsloationLevelNotSupportedError {}
 ///
 /// Each level controls how much one transaction can see changes made by other transactions.
 /// Higher levels prevent more read anomalies, but they can reduce performance.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IsolationLevel {
     /// A transaction can read data that another transaction has not yet committed.
     ///

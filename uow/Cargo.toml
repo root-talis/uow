@@ -17,7 +17,7 @@ unsafe_code = "forbid"
 default = []
 
 sqlx = ["dep:sqlx"]
-sqlx-sqlite = ["sqlx", "sqlx/sqlite"]
+sqlx-sqlite = ["sqlx", "sqlx/sqlite", "sqlx/runtime-tokio"]
 
 [dependencies]
 async-trait = "0.1"
