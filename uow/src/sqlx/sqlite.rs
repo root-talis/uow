@@ -17,15 +17,26 @@ impl SqliteUoW {
     pub fn tx_mut(&mut self) -> &mut Transaction<'static, Sqlite> {
         &mut self.tx
     }
+
+    async fn commit(self) -> Result<(), sqlx::Error> {
+        self.tx.commit().await
+    }
+
+    async fn rollback(self) -> Result<(), sqlx::Error> {
+        self.tx.rollback().await
+    }
+
+    async fn reset_pragma(&mut self) -> Result<(), sqlx::Error> {
+        sqlx::query("PRAGMA read_uncommitted = 0")
+            .execute(self.tx.as_mut())
+            .await?;
+        Ok(())
+    }
 }
 
 #[async_trait]
 impl UoW for SqliteUoW {
     type Error = sqlx::Error;
-
-    async fn commit(self) -> Result<(), Self::Error> {
-        self.tx.commit().await
-    }
 }
 
 /// SQLx/Sqlite-specific UoW factory.
@@ -44,11 +55,8 @@ impl SqliteTxManager {
     }
 }
 
-#[async_trait]
-impl TxManager for SqliteTxManager {
-    type UoW = SqliteUoW;
-
-    async fn unit_of_work(&self) -> Result<Self::UoW, <Self::UoW as UoW>::Error> {
+impl SqliteTxManager {
+    async fn unit_of_work(&self) -> Result<SqliteUoW, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
         // PRAGMA values cannot be parameterised in SQLite.
         // The value is always a hard-coded 0 or 1, so injection is impossible.
@@ -62,6 +70,11 @@ impl TxManager for SqliteTxManager {
             .await?;
         Ok(SqliteUoW::new(tx))
     }
+}
+
+#[async_trait]
+impl TxManager for SqliteTxManager {
+    type UoW = SqliteUoW;
 
     async fn transaction<F, Fut, R, E>(&self, f: F) -> Result<Result<R, E>, TransactionError<Self::UoW>>
     where
@@ -71,15 +84,18 @@ impl TxManager for SqliteTxManager {
         E: Send,
     {
         let uow = self.unit_of_work().await.map_err(TransactionError::BeginFailed)?;
-        let (uow, r) = f(uow).await;
+        let (mut uow, r) = f(uow).await;
         match r {
             Ok(ok) => {
-                // debug!("ok - commit");
+                uow.reset_pragma().await.map_err(TransactionError::CommitFailed)?;
                 uow.commit().await.map_err(TransactionError::CommitFailed)?;
                 Ok(Ok(ok))
             }
             Err(err) => {
-                // Transaction is automatically rolled back when dropped
+                uow.reset_pragma().await.map_err(TransactionError::RollbackFailed)?;
+                if let Err(e) = uow.rollback().await {
+                    return Err(TransactionError::RollbackFailed(e));
+                }
                 Ok(Err(err))
             }
         }
@@ -240,20 +256,22 @@ mod tests {
         /// Scenario: `TransactionError::into_inner` extracts the underlying error.
         ///
         /// ## What is being tested
-        /// The utility method that discards the `BeginFailed`/`CommitFailed` wrapper and
-        /// returns the original platform error.
+        /// The utility method that discards the `BeginFailed`/`CommitFailed`/`RollbackFailed`
+        /// wrapper and returns the original platform error.
         ///
         /// ## Testing strategy
-        /// Construct both variants of `TransactionError` with a dummy `sqlx::Error`,
+        /// Construct all three variants of `TransactionError` with a dummy `sqlx::Error`,
         /// call `into_inner`, and assert the extracted error matches the original.
         #[test]
         fn transaction_error_into_inner_extracts_source() {
             let inner = sqlx::Error::RowNotFound;
             let err_begin = TransactionError::<SqliteUoW>::BeginFailed(inner);
             let err_commit = TransactionError::<SqliteUoW>::CommitFailed(sqlx::Error::RowNotFound);
+            let err_rollback = TransactionError::<SqliteUoW>::RollbackFailed(sqlx::Error::RowNotFound);
 
             assert!(matches!(err_begin.into_inner(), sqlx::Error::RowNotFound));
             assert!(matches!(err_commit.into_inner(), sqlx::Error::RowNotFound));
+            assert!(matches!(err_rollback.into_inner(), sqlx::Error::RowNotFound));
         }
 
         /// Scenario: `SqliteTxManager::isolated_at` seeds the selector with the requested level.
@@ -288,82 +306,42 @@ mod tests {
                 .expect("in-memory pool")
         }
 
-        /// Scenario: `SqliteTxManager::unit_of_work` begins a transaction successfully.
+    /// Scenario: `SqliteTxManager::transaction` commits and persists data.
         ///
         /// ## What is being tested
-        /// Basic connectivity: the manager can acquire a transaction from the pool.
+        /// The `transaction` API: when the closure returns `Ok`, changes are committed
+        /// and visible to subsequent connections.
         ///
         /// ## Testing strategy
-        /// Create an in-memory pool, call `unit_of_work`, and assert the result is `Ok`.
+        /// Call `transaction` with a closure that creates a table and inserts a row,
+        /// assert the outer result is `Ok(Ok(()))`, then query the same database via
+        /// the pool and assert the row exists.
         #[tokio::test]
-        async fn unit_of_work_begins_transaction() {
-            let pool = in_memory_pool().await;
-            let man = SqliteTxManager::new(pool);
-            let uow = man.unit_of_work().await;
-            assert!(uow.is_ok());
-        }
-
-        /// Scenario: `SqliteUoW::commit` persists data.
-        ///
-        /// ## What is being tested
-        /// The `UoW::commit` contract: once committed, changes are visible to subsequent
-        /// connections.
-        ///
-        /// ## Testing strategy
-        /// Begin a UoW, create a table and insert a row, commit, then query the same
-        /// database via the pool and assert the row exists.
-        #[tokio::test]
-        async fn commit_persists_data() {
+        async fn transaction_commits_and_persists_data() {
             let pool = in_memory_pool().await;
             let man = SqliteTxManager::new(pool.clone());
 
-            let mut uow = man.unit_of_work().await.unwrap();
-            sqlx::query("CREATE TABLE t (id INTEGER PRIMARY KEY)")
-                .execute(uow.tx_mut().as_mut())
-                .await
-                .unwrap();
-            sqlx::query("INSERT INTO t (id) VALUES (42)")
-                .execute(uow.tx_mut().as_mut())
-                .await
-                .unwrap();
-            uow.commit().await.unwrap();
+            let result = man
+                .transaction(|mut uow| async move {
+                    sqlx::query("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+                        .execute(uow.tx_mut().as_mut())
+                        .await
+                        .unwrap();
+                    sqlx::query("INSERT INTO t (id) VALUES (42)")
+                        .execute(uow.tx_mut().as_mut())
+                        .await
+                        .unwrap();
+                    (uow, Ok::<(), ()>(()))
+                })
+                .await;
+
+            assert!(matches!(result, Ok(Ok(()))));
 
             let row: (i64,) = sqlx::query_as("SELECT id FROM t")
                 .fetch_one(&pool)
                 .await
                 .unwrap();
             assert_eq!(row.0, 42);
-        }
-
-        /// Scenario: Dropping `SqliteUoW` without committing rolls back the transaction.
-        ///
-        /// ## What is being tested
-        /// The rollback-on-drop invariant: uncommitted changes must not be persisted.
-        ///
-        /// ## Testing strategy
-        /// Begin a UoW, create a table and insert a row, drop the UoW without calling
-        /// `commit`, then query via the pool and assert the table does not exist.
-        #[tokio::test]
-        async fn drop_without_commit_rolls_back() {
-            let pool = in_memory_pool().await;
-            let man = SqliteTxManager::new(pool.clone());
-
-            {
-                let mut uow = man.unit_of_work().await.unwrap();
-                sqlx::query("CREATE TABLE t (id INTEGER PRIMARY KEY)")
-                    .execute(uow.tx_mut().as_mut())
-                    .await
-                    .unwrap();
-                sqlx::query("INSERT INTO t (id) VALUES (42)")
-                    .execute(uow.tx_mut().as_mut())
-                    .await
-                    .unwrap();
-                // uow is dropped here
-            }
-
-            let result: Result<(i64,), sqlx::Error> =
-                sqlx::query_as("SELECT id FROM t").fetch_one(&pool).await;
-            assert!(result.is_err());
         }
 
         /// Scenario: `SqliteTxManager::transaction` commits when the closure returns `Ok`.
@@ -430,6 +408,28 @@ mod tests {
             assert_eq!(row.0, 0);
         }
 
+        /// Scenario: `SqliteTxManager::transaction` commits successfully even when the
+        /// closure does nothing.
+        ///
+        /// ## What is being tested
+        /// The minimal success path: beginning a transaction and returning `Ok(())`
+        /// produces `Ok(Ok(()))`.
+        ///
+        /// ## Testing strategy
+        /// Call `transaction` with a no-op closure that returns `Ok(())`, then assert
+        /// the outer result is `Ok(Ok(()))`.
+        #[tokio::test]
+        async fn transaction_begins_and_commits_empty() {
+            let pool = in_memory_pool().await;
+            let man = SqliteTxManager::new(pool);
+
+            let result = man
+                .transaction(|uow| async move { (uow, Ok::<(), ()>(())) })
+                .await;
+
+            assert!(matches!(result, Ok(Ok(()))));
+        }
+
         /// Scenario: `SqliteTxManager::transaction` returns `TransactionError::BeginFailed`
         /// when the pool is closed.
         ///
@@ -485,6 +485,38 @@ mod tests {
             assert!(matches!(result, Err(TransactionError::CommitFailed(_))));
         }
 
+        /// Scenario: `SqliteTxManager::transaction` returns `TransactionError::RollbackFailed`
+        /// when the inner `UoW::rollback` fails.
+        ///
+        /// ## What is being tested
+        /// The `transaction` helper's error-path: if the closure returns `Err` and the
+        /// subsequent rollback fails, the failure is wrapped in
+        /// `TransactionError::RollbackFailed` rather than being silently dropped.
+        ///
+        /// ## Testing strategy
+        /// Force rollback to fail by ending the underlying transaction early.  Inside
+        /// the closure we execute `ROLLBACK`, which terminates the transaction.
+        /// Returning `Err` from the closure causes `transaction` to attempt rollback;
+        /// because the transaction is already ended, sqlx returns an error that is
+        /// propagated as `TransactionError::RollbackFailed`.
+        #[tokio::test]
+        async fn transaction_propagates_rollback_failure() {
+            let pool = in_memory_pool().await;
+            let man = SqliteTxManager::new(pool);
+
+            let result = man
+                .transaction(|mut uow| async move {
+                    sqlx::query("ROLLBACK")
+                        .execute(uow.tx_mut().as_mut())
+                        .await
+                        .unwrap();
+                    (uow, Err::<(), &str>("intentional"))
+                })
+                .await;
+
+            assert!(matches!(result, Err(TransactionError::RollbackFailed(_))));
+        }
+
         /// Scenario: `tx_mut` allows executing queries on the underlying transaction.
         ///
         /// ## What is being tested
@@ -492,18 +524,24 @@ mod tests {
         /// used to drive SQLx queries.
         ///
         /// ## Testing strategy
-        /// Begin a UoW, use `tx_mut` (dereferenced to the connection) to create a table,
-        /// and assert the query succeeds.
+        /// Call `transaction` with a closure that uses `tx_mut` to create a table,
+        /// assert the outer result is `Ok(Ok(()))`.
         #[tokio::test]
         async fn tx_mut_allows_query_execution() {
             let pool = in_memory_pool().await;
             let man = SqliteTxManager::new(pool);
-            let mut uow = man.unit_of_work().await.unwrap();
 
-            let result = sqlx::query("CREATE TABLE t (id INTEGER PRIMARY KEY)")
-                .execute(uow.tx_mut().as_mut())
+            let result = man
+                .transaction(|mut uow| async move {
+                    sqlx::query("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+                        .execute(uow.tx_mut().as_mut())
+                        .await
+                        .unwrap();
+                    (uow, Ok::<(), ()>(()))
+                })
                 .await;
-            assert!(result.is_ok());
+
+            assert!(matches!(result, Ok(Ok(()))));
         }
 
         /// Scenario: Default isolation level (`Serializable`) is active on new
@@ -514,35 +552,39 @@ mod tests {
         /// fresh transaction, which prevents dirty reads.
         ///
         /// ## Testing strategy
-        /// Begin a UoW and query `PRAGMA read_uncommitted`.  Assert the value is 0,
-        /// confirming the connection is in serializable mode.
+        /// Call `transaction` with a closure that queries `PRAGMA read_uncommitted`,
+        /// returns `Ok(row.0)`, and assert the outer result is `Ok(Ok(0))`.
         #[tokio::test]
         async fn serializable_prevents_dirty_reads() {
             let pool = in_memory_pool().await;
             let man = SqliteTxManager::new(pool);
 
-            let mut uow = man.unit_of_work().await.unwrap();
-            let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
-                .fetch_one(uow.tx_mut().as_mut())
-                .await
-                .unwrap();
-            assert_eq!(row.0, 0); // 0 => serializable (no dirty reads)
+            let result = man
+                .transaction(|mut uow| async move {
+                    let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
+                        .fetch_one(uow.tx_mut().as_mut())
+                        .await
+                        .unwrap();
+                    (uow, Ok::<i64, ()>(row.0))
+                })
+                .await;
+
+            assert!(matches!(result, Ok(Ok(0))));
         }
 
         /// Scenario: `ReadUncommitted` isolation level is propagated from
         /// `SqliteTxManager` into the SQLite transaction.
         ///
         /// ## What is being tested
-        /// The propagation chain `TxManager.isolation_level` → `unit_of_work()` →
-        /// SQLite transaction state.  When a manager is configured with
-        /// `ReadUncommitted`, `unit_of_work` must issue
+        /// The propagation chain from `TxManager.isolation_level` into the SQLite
+        /// transaction state.  When a manager is configured with
+        /// `ReadUncommitted`, the internal helper must issue
         /// `PRAGMA read_uncommitted = 1` before handing the transaction to the caller.
         ///
         /// ## Testing strategy
-        /// Configure a manager with `ReadUncommitted`, begin a UoW, and query
-        /// `PRAGMA read_uncommitted` through the UoW's underlying connection.
-        /// Assert the value is 1.  This test is expected to **fail** (red) because
-        /// the feature is not yet implemented.
+        /// Configure a manager with `ReadUncommitted`, call `transaction` with a
+        /// closure that queries `PRAGMA read_uncommitted` and returns `Ok(row.0)`,
+        /// then assert the outer result is `Ok(Ok(1))`.
         #[tokio::test]
         async fn isolation_level_propagated_to_sqlite_transaction() {
             let pool = in_memory_pool().await;
@@ -551,15 +593,17 @@ mod tests {
                 .if_platform_supports()
                 .unwrap();
 
-            let mut uow = man.unit_of_work().await.unwrap();
-            let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
-                .fetch_one(uow.tx_mut().as_mut())
-                .await
-                .unwrap();
+            let result = man
+                .transaction(|mut uow| async move {
+                    let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
+                        .fetch_one(uow.tx_mut().as_mut())
+                        .await
+                        .unwrap();
+                    (uow, Ok::<i64, ()>(row.0))
+                })
+                .await;
 
-            // Feature not implemented => currently returns 0.
-            // Once the todo is addressed the assertion below should pass.
-            assert_eq!(row.0, 1, "read_uncommitted pragma should be 1 once implemented");
+            assert!(matches!(result, Ok(Ok(1))));
         }
 
         /// Scenario: `Serializable` isolation level is propagated from
@@ -571,10 +615,9 @@ mod tests {
         /// UoW must keep `PRAGMA read_uncommitted = 0` (the SQLite default).
         ///
         /// ## Testing strategy
-        /// Configure a manager with `Serializable`, begin a UoW, and query
-        /// `PRAGMA read_uncommitted`.  Assert the value is 0.  This test is green
-        /// today and serves as a regression guard against accidentally flipping the
-        /// default when the missing feature is implemented.
+        /// Configure a manager with `Serializable`, call `transaction` with a
+        /// closure that queries `PRAGMA read_uncommitted` and returns `Ok(row.0)`,
+        /// then assert the outer result is `Ok(Ok(0))`.
         #[tokio::test]
         async fn serializable_isolation_level_propagated_to_sqlite_transaction() {
             let pool = in_memory_pool().await;
@@ -583,28 +626,32 @@ mod tests {
                 .if_platform_supports()
                 .unwrap();
 
-            let mut uow = man.unit_of_work().await.unwrap();
-            let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
-                .fetch_one(uow.tx_mut().as_mut())
-                .await
-                .unwrap();
-            assert_eq!(row.0, 0); // 0 => serializable
+            let result = man
+                .transaction(|mut uow| async move {
+                    let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
+                        .fetch_one(uow.tx_mut().as_mut())
+                        .await
+                        .unwrap();
+                    (uow, Ok::<i64, ()>(row.0))
+                })
+                .await;
+
+            assert!(matches!(result, Ok(Ok(0))));
         }
 
         /// Scenario: A `ReadUncommitted` transaction commits and the same physical
         /// connection is reused by a `Serializable` transaction.
         ///
         /// ## What is being tested
-        /// Symmetric case to `isolation_level_resets_after_rollback_on_single_connection`.
-        /// Connection hygiene must hold after commit as well as rollback.
+        /// Connection hygiene: the isolation level pragma must be reset when the
+        /// transaction ends, so the next transaction on the same connection starts
+        /// with a clean state.
         ///
         /// ## Testing strategy
         /// 1. Create a pool with `max_connections(1)`.
-        /// 2. Create manager A with `ReadUncommitted`, begin `uow1`, query pragma
-        ///    and assert `1`.
-        /// 3. Commit `uow1`.
-        /// 4. Create manager B with `Serializable` sharing the same pool,
-        ///    begin `uow2`, query pragma and assert `0`.
+        /// 2. Call `transaction` on manager A (`ReadUncommitted`), query pragma
+        ///    and assert `1`, return `Ok(())`.
+        /// 3. Call `transaction` on manager B (`Serializable`), query pragma and assert `0`.
         #[tokio::test]
         async fn isolation_level_resets_after_commit_on_single_connection() {
             let pool = SqlitePoolOptions::new()
@@ -618,25 +665,91 @@ mod tests {
                 .if_platform_supports()
                 .unwrap();
 
-            let mut uow1 = man_a.unit_of_work().await.unwrap();
-            let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
-                .fetch_one(uow1.tx_mut().as_mut())
-                .await
-                .unwrap();
-            assert_eq!(row.0, 1);
-            uow1.commit().await.unwrap();
+            let result_a = man_a
+                .transaction(|mut uow| async move {
+                    let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
+                        .fetch_one(uow.tx_mut().as_mut())
+                        .await
+                        .unwrap();
+                    assert_eq!(row.0, 1);
+                    (uow, Ok::<(), ()>(()))
+                })
+                .await;
+            assert!(matches!(result_a, Ok(Ok(()))));
 
             let man_b = SqliteTxManager::new(pool)
                 .isolated_at(IsolationLevel::Serializable)
                 .if_platform_supports()
                 .unwrap();
 
-            let mut uow2 = man_b.unit_of_work().await.unwrap();
-            let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
-                .fetch_one(uow2.tx_mut().as_mut())
+            let result_b = man_b
+                .transaction(|mut uow| async move {
+                    let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
+                        .fetch_one(uow.tx_mut().as_mut())
+                        .await
+                        .unwrap();
+                    assert_eq!(row.0, 0);
+                    (uow, Ok::<(), ()>(()))
+                })
+                .await;
+            assert!(matches!(result_b, Ok(Ok(()))));
+        }
+
+        /// Scenario: A `ReadUncommitted` transaction rolls back and the same physical
+        /// connection is reused by a `Serializable` transaction.
+        ///
+        /// ## What is being tested
+        /// Connection hygiene after rollback: the isolation level pragma must be reset
+        /// even when the transaction is rolled back, so the next transaction on the same
+        /// connection starts with a clean state.
+        ///
+        /// ## Testing strategy
+        /// 1. Create a pool with `max_connections(1)`.
+        /// 2. Call `transaction` on manager A (`ReadUncommitted`), query pragma
+        ///    and assert `1`, return `Err("rollback me")`.
+        /// 3. Assert the first result is `Ok(Err("rollback me"))`.
+        /// 4. Call `transaction` on manager B (`Serializable`), query pragma and assert `0`.
+        #[tokio::test]
+        async fn isolation_level_resets_after_rollback_on_single_connection() {
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect("sqlite::memory:")
                 .await
+                .expect("single-connection pool");
+
+            let man_a = SqliteTxManager::new(pool.clone())
+                .isolated_at(IsolationLevel::ReadUncommitted)
+                .if_platform_supports()
                 .unwrap();
-            assert_eq!(row.0, 0, "pragma should be reset to 0 when Serializable is requested");
+
+            let result_a = man_a
+                .transaction(|mut uow| async move {
+                    let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
+                        .fetch_one(uow.tx_mut().as_mut())
+                        .await
+                        .unwrap();
+                    assert_eq!(row.0, 1);
+                    (uow, Err::<(), &str>("rollback me"))
+                })
+                .await;
+            assert!(matches!(result_a, Ok(Err("rollback me"))));
+
+            let man_b = SqliteTxManager::new(pool)
+                .isolated_at(IsolationLevel::Serializable)
+                .if_platform_supports()
+                .unwrap();
+
+            let result_b = man_b
+                .transaction(|mut uow| async move {
+                    let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
+                        .fetch_one(uow.tx_mut().as_mut())
+                        .await
+                        .unwrap();
+                    assert_eq!(row.0, 0);
+                    (uow, Ok::<(), ()>(()))
+                })
+                .await;
+            assert!(matches!(result_b, Ok(Ok(()))));
         }
 
         /// Scenario: Fallback isolation level chain resolves end-to-end.

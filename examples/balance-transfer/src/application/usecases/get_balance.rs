@@ -1,11 +1,12 @@
 use thiserror::Error;
+use tracing::error;
 
 use crate::{application::{errors::StorageError, ports::AccountsRepository}, domain::value_objects::{AccountNumber, CreditsAmount}};
 
 use uow::{TxManager, UoW};
 
 #[derive(Clone)]
-pub struct GetBalanceUsecase<M, A> 
+pub struct GetBalanceUsecase<M, A>
 where
     M: TxManager,
     A: AccountsRepository<M::UoW>
@@ -14,26 +15,34 @@ where
     accounts_repo: A,
 }
 
-impl <M, BaR> GetBalanceUsecase<M, BaR>
+impl<M, A> GetBalanceUsecase<M, A>
 where
     M: TxManager,
-    BaR: AccountsRepository<M::UoW>
+    A: AccountsRepository<M::UoW>
 {
-    pub fn new(tx_manager: M, accounts_repo: BaR) -> Self {
+    pub fn new(tx_manager: M, accounts_repo: A) -> Self {
         Self { tx_manager, accounts_repo }
     }
 
     pub async fn execute(&self, account_number: AccountNumber) -> Result<CreditsAmount, GetBalanceError<M::UoW>> {
-        let mut uow = self.tx_manager.unit_of_work()
+        self.tx_manager
+            .transaction(|mut uow| async {
+                let r = async {
+                    let account = self.accounts_repo
+                        .get_account(&mut uow, account_number)
+                        .await?
+                        .ok_or(GetBalanceError::AccountNotAvailable(account_number))?;
+
+                    Ok(*account.balance())
+                }.await;
+
+                (uow, r)
+            })
             .await
-            .map_err(|e| GetBalanceError::StorageError(StorageError::PlatformError(e)))?;
-
-        let account = self.accounts_repo
-            .get_account(&mut uow, account_number)
-            .await?
-            .ok_or(GetBalanceError::AccountNotAvailable(account_number))?;
-
-        Ok(*account.balance())
+            .map_err(|e| {
+                error!(e = e.to_string(), "transaction error");
+                GetBalanceError::StorageError(StorageError::PlatformError(e.into_inner()))
+            })?
     }
 }
 

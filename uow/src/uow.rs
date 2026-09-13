@@ -1,15 +1,15 @@
 use async_trait::async_trait;
 use thiserror::Error;
 
-/// Trait for a Unit of Work (transaction wrapper).
-/// Allows different transaction backends to be plugged in.
+/// Marker trait for Unit of Work implementations.
+/// Defines the error type used by a specific transaction backend.
+///
+/// Implementations provide a handle to an active transaction.
+/// The `TxManager` controls the lifecycle (commit on success, rollback on failure).
 #[async_trait]
 pub trait UoW: Send {
     /// The error type returned by this UoW implementation.
     type Error: std::error::Error + Send + Sync + 'static;
-
-    /// Commit the transaction.
-    async fn commit(self) -> Result<(), Self::Error>;
 }
 
 /// Trait for a Transaction manager.
@@ -19,15 +19,18 @@ pub trait TxManager: Clone + Send + Sync {
     /// The type of Unit of Work this manager creates.
     type UoW: UoW;
 
-    /// Create a new Unit of Work instance.
-    #[must_use]
-    async fn unit_of_work(&self) -> Result<Self::UoW, <Self::UoW as UoW>::Error>;
-
-    /// Execute a closure within a Unit of Work, automatically committing on success
+    /// Execute a closure within a Unit of Work, automatically finalizing on success
     /// or rolling back on failure.
     ///
     /// The closure takes ownership of the Unit of Work and returns it along with the result,
     /// avoiding lifetime issues with async closures.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransactionError`] on platform errors during transaction lifecycle:
+    /// - [`TransactionError::BeginFailed`] — failed to start the transaction.
+    /// - [`TransactionError::CommitFailed`] — failed to commit the transaction.
+    /// - [`TransactionError::RollbackFailed`] — failed to roll back the transaction.
     #[must_use]
     async fn transaction<F, Fut, R, E>(&self, callback: F) -> Result<Result<R, E>, TransactionError<Self::UoW>>
     where
@@ -41,7 +44,7 @@ pub trait TxManager: Clone + Send + Sync {
     ///
     /// The original manager does not change. The selector overrides the isolation level
     /// only for the new manager that it is going to create.
-    /// 
+    ///
     /// ```rust,ignore
     /// self.tx_man
     ///     .isolated_at(IsolationLevel::RepeatableRead)
@@ -58,23 +61,29 @@ pub trait TxManager: Clone + Send + Sync {
 /// Represents failure modes of TxManager::transaction internal logic.
 #[derive(Error, Debug)]
 pub enum TransactionError<U: UoW> {
-    /// A platform error has occured when starting transaction.
+    /// A platform error occurred while beginning the transaction.
     #[error("failed to start a unit of work")]
     BeginFailed(#[source] U::Error),
 
-    /// A platform error has occured when commiting transaction.
+    /// A platform error occurred while committing the transaction.
     #[error("failed to commit a unit of work")]
     CommitFailed(#[source] U::Error),
+
+    /// A platform error occurred while rolling back the transaction.
+    #[error("failed to roll back a unit of work")]
+    RollbackFailed(#[source] U::Error),
 }
 
-impl <U: UoW> TransactionError<U> {
-    /// Returns platform error discarding details about it's origin.
+impl<U: UoW> TransactionError<U> {
+    /// Returns platform error discarding details about its origin.
+    #[must_use]
     pub fn into_inner(self) -> U::Error {
         match self {
-            TransactionError::BeginFailed(e)  => e,
+            TransactionError::BeginFailed(e) => e,
             TransactionError::CommitFailed(e) => e,
+            TransactionError::RollbackFailed(e) => e,
         }
-    } 
+    }
 }
 
 /// Trait for an Isolation level selector.
@@ -83,8 +92,8 @@ impl <U: UoW> TransactionError<U> {
 /// Ensures that the underlying platform supports requested isolation level.
 /// Supports configuring a chain of fallbacks.
 pub trait IsolationLevelSelector<M: TxManager> {
-    /// Specifies the next preferrable isolation level if previous specified levels
-    /// are not supported by the plaform.
+    /// Specifies the next preferable isolation level if previous specified levels
+    /// are not supported by the platform.
     /// 
     /// Used to configure a chain of fallbacks.
     #[must_use]
@@ -92,9 +101,8 @@ pub trait IsolationLevelSelector<M: TxManager> {
 
     /// Returns a new Transaction manager with configured isolation level.
     /// 
-    /// If none of specified isolation levels are supporetd by the underlying platform,
+    /// If none of specified isolation levels are supported by the underlying platform,
     /// returns "IsloationLevelNotSupportedError"
-    #[must_use]
     fn if_platform_supports(self) -> Result<M, IsloationLevelNotSupportedError>;
 }
 
