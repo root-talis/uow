@@ -146,6 +146,7 @@ impl IsolationLevelSelector<SqliteTxManager> for SqliteIsolationLevelSelector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::transaction;
 
     // ------------------------------------------------------------------
     // Unit tests (no database required)
@@ -801,6 +802,113 @@ mod tests {
                 .isolated_at(IsolationLevel::RepeatableRead)
                 .if_platform_supports();
             assert!(result.is_err());
+        }
+
+        /// Scenario: `transaction!` commits when the body returns `Ok`.
+        ///
+        /// ## What is being tested
+        /// The macro's non-move variant correctly delegates to `TxManager::transaction`
+        /// and commits on success.
+        ///
+        /// ## Testing strategy
+        /// Use `transaction!` with `async { ... }` (non-move) to create a table and
+        /// return `Ok(())`. Assert the outer result is `Ok(Ok(()))`, then verify the
+        /// table exists by querying `sqlite_master`.
+        #[tokio::test]
+        async fn macro_commits_on_ok() {
+            let pool = in_memory_pool().await;
+            let man = SqliteTxManager::new(pool.clone());
+
+            let result = transaction!(man, |mut uow| async {
+                sqlx::query("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+                    .execute(uow.tx_mut().as_mut())
+                    .await
+                    .unwrap();
+                Ok::<(), ()>(())
+            })
+            .await;
+
+            assert!(matches!(result, Ok(Ok(()))));
+
+            let row: (i64,) = sqlx::query_as("SELECT count(*) FROM sqlite_master WHERE name = 't'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(row.0, 1);
+        }
+
+        /// Scenario: `transaction!` rolls back when the body returns `Err`.
+        ///
+        /// ## What is being tested
+        /// The macro's non-move variant correctly delegates to `TxManager::transaction`
+        /// and rolls back on failure.
+        ///
+        /// ## Testing strategy
+        /// Use `transaction!` with `async { ... }` (non-move) to create a table and
+        /// return `Err("intentional failure")`. Assert the outer result is
+        /// `Ok(Err("intentional failure"))`, then verify the table does not exist.
+        #[tokio::test]
+        async fn macro_rolls_back_on_err() {
+            let pool = in_memory_pool().await;
+            let man = SqliteTxManager::new(pool.clone());
+
+            let result = transaction!(man, |mut uow| async {
+                sqlx::query("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+                    .execute(uow.tx_mut().as_mut())
+                    .await
+                    .unwrap();
+                Err::<(), &str>("intentional failure")
+            })
+            .await;
+
+            assert!(matches!(result, Ok(Err("intentional failure"))));
+
+            let row: (i64,) = sqlx::query_as("SELECT count(*) FROM sqlite_master WHERE name = 't'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(row.0, 0);
+        }
+
+        /// Scenario: `transaction!` with `async move` commits when the body returns `Ok`.
+        ///
+        /// ## What is being tested
+        /// The macro's `move` variant correctly delegates to `TxManager::transaction`
+        /// and commits on success, capturing variables by move.
+        ///
+        /// ## Testing strategy
+        /// Use `transaction!` with `async move { ... }` to create a table and return
+        /// `Ok(())`. Assert the outer result is `Ok(Ok(()))`, then verify the table
+        /// exists by querying `sqlite_master`.
+        #[tokio::test]
+        async fn macro_async_move_variant_commits() {
+            let pool = in_memory_pool().await;
+            let man = SqliteTxManager::new(pool.clone());
+
+            let table_name = "t".to_string();
+
+            let result = transaction!(man, |mut uow| async move {
+                sqlx::query("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+                    .execute(uow.tx_mut().as_mut())
+                    .await
+                    .unwrap();
+                let row: (String,) = sqlx::query_as("SELECT ?1")
+                    .bind(table_name)
+                    .fetch_one(uow.tx_mut().as_mut())
+                    .await
+                    .unwrap();
+                assert_eq!(row.0, "t");
+                Ok::<(), ()>(())
+            })
+            .await;
+
+            assert!(matches!(result, Ok(Ok(()))));
+
+            let row: (i64,) = sqlx::query_as("SELECT count(*) FROM sqlite_master WHERE name = 't'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(row.0, 1);
         }
     }
 

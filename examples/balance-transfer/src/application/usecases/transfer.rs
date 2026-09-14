@@ -1,9 +1,8 @@
 use thiserror::Error;
 use tracing::error;
+use uow::{transaction, IsloationLevelNotSupportedError, IsolationLevel, IsolationLevelSelector, TxManager, UoW};
 
 use crate::{application::{errors::StorageError, ports::AccountsRepository}, domain::{self, services::transfer_credits, value_objects::{AccountNumber, CreditsAmount}}};
-
-use uow::{IsloationLevelNotSupportedError, IsolationLevel, IsolationLevelSelector, TxManager, UoW};
 
 pub struct TransferRequest {
     pub from:   AccountNumber,
@@ -48,38 +47,36 @@ where
     }
 
     pub async fn execute(&self, request: TransferRequest) -> Result<TransferResult, TransferError<M::UoW>> {
-        self.tx_manager
-            .isolated_at(IsolationLevel::RepeatableRead)
-                .or(IsolationLevel::Serializable)
-                .if_platform_supports()?
-            .transaction(|mut uow| async {
-                let r = async {
-                    let mut from_account = self.accounts_repo
-                        .get_account(&mut uow, request.from)
-                        .await?
-                        .ok_or(TransferError::AccountNotAvailable(request.from))?
-                    ;
+        transaction!(
+            self.tx_manager
+                .isolated_at(IsolationLevel::RepeatableRead)
+                    .or(IsolationLevel::Serializable)
+                    .if_platform_supports()?,
+            |mut uow| async {
+                let mut from_account = self.accounts_repo
+                    .get_account(&mut uow, request.from)
+                    .await?
+                    .ok_or(TransferError::AccountNotAvailable(request.from))?
+                ;
 
-                    let mut to_account = self.accounts_repo
-                        .get_account(&mut uow, request.to)
-                        .await?
-                        .ok_or(TransferError::AccountNotAvailable(request.to))?
-                    ;
+                let mut to_account = self.accounts_repo
+                    .get_account(&mut uow, request.to)
+                    .await?
+                    .ok_or(TransferError::AccountNotAvailable(request.to))?
+                ;
 
-                    transfer_credits(&mut from_account, request.amount, &mut to_account)?;
+                transfer_credits(&mut from_account, request.amount, &mut to_account)?;
 
-                    self.accounts_repo.save_account(&mut uow, &from_account).await?;
-                    self.accounts_repo.save_account(&mut uow, &to_account).await?;
+                self.accounts_repo.save_account(&mut uow, &from_account).await?;
+                self.accounts_repo.save_account(&mut uow, &to_account).await?;
 
-                    Ok(())
-                }.await;
-
-                (uow, r)
-            })
-            .await
-            .map_err(|e| {
-                error!(e = e.to_string(), "transaction error");
-                TransferError::StorageError(StorageError::PlatformError(e.into_inner()))
-            })?
+                Ok(())
+            }
+        )
+        .await
+        .map_err(|e| {
+            error!(e = e.to_string(), "transaction error");
+            TransferError::StorageError(StorageError::PlatformError(e.into_inner()))
+        })?
     }
 }
