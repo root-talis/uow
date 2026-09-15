@@ -6,7 +6,6 @@ use axum::extract::FromRef;
 use crate::{application::{errors::StorageError, ports::AccountsRepository}, domain::{entities::Account, value_objects::{AccountNumber, CreditsAmount}}};
 use uow::sqlx::sqlite::SqliteUoW;
 
-
 #[derive(Clone)]
 pub struct SqliteRepository;
 

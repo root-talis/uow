@@ -1,7 +1,7 @@
 use sqlx::SqlitePool;
 
 use crate::application::usecases::{GetBalanceUsecase, TransferUsecase};
-use crate::infrastructure::SqliteRepository;
+use crate::infrastructure::repository::SqliteRepository;
 use uow::sqlx::sqlite::SqliteTxManager;
 
 #[derive(Clone)]
