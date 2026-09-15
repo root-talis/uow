@@ -18,7 +18,7 @@ impl Container {
         let get_balance_usecase = GetBalanceUsecase::new(tx_man, repository);
         Self {
             transfer_usecase,
-            get_balance_usecase
+            get_balance_usecase,
         }
     }
 }

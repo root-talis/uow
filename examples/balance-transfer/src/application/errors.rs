@@ -1,7 +1,6 @@
 use thiserror::Error;
 use uow::UoW;
 
-
 #[derive(Error, Debug)]
 pub enum StorageError<U: UoW> {
     #[error("storage error")]

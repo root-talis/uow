@@ -2,8 +2,8 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
 use dotenv::{EnvLoader, EnvMap, EnvSequence};
-use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::SqlitePool;
+use sqlx::sqlite::SqliteConnectOptions;
 use tokio::net::TcpListener;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -14,9 +14,9 @@ mod container;
 
 // Onion layers:
 mod api;
-mod infrastructure;
 mod application;
 mod domain;
+mod infrastructure;
 
 use crate::container::Container;
 
@@ -44,7 +44,9 @@ async fn main() -> Result<()> {
         .with_state(container)
         .layer(tower_http::trace::TraceLayer::new_for_http());
 
-    let listener = TcpListener::bind(&addr).await.expect("Failed to bind TCP listener");
+    let listener = TcpListener::bind(&addr)
+        .await
+        .expect("Failed to bind TCP listener");
     info!("Server listening on http://{}", addr);
 
     // Serve with graceful shutdown.
@@ -55,33 +57,32 @@ async fn main() -> Result<()> {
 }
 
 fn get_listen_addr(env: &EnvMap) -> String {
-    let port: u16 = env.var("PORT")
+    let port: u16 = env
+        .var("PORT")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(3000);
 
-    let addr: IpAddr = env.var("ADDR")
+    let addr: IpAddr = env
+        .var("ADDR")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)))
-    ;
+        .unwrap_or(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
 
     format!("{}:{}", addr, port)
 }
 
 async fn setup_sqlite(env: &EnvMap) -> Result<SqlitePool> {
-    let connection_string = env.var("DATABASE_URL")
+    let connection_string = env
+        .var("DATABASE_URL")
         .ok()
-        .unwrap_or_else(||String::from("sqlite://dev.db"));
+        .unwrap_or_else(|| String::from("sqlite://dev.db"));
 
-    let opts = SqliteConnectOptions::from_str(connection_string.as_str())?
-        .create_if_missing(true);
+    let opts = SqliteConnectOptions::from_str(connection_string.as_str())?.create_if_missing(true);
 
     let pool = SqlitePool::connect_with(opts).await?;
 
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await?;
+    sqlx::migrate!("./migrations").run(&pool).await?;
 
     info!("Migrations applied");
 

@@ -32,7 +32,10 @@ pub trait TxManager: Clone + Send + Sync {
     /// - [`TransactionError::CommitFailed`] — failed to commit the transaction.
     /// - [`TransactionError::RollbackFailed`] — failed to roll back the transaction.
     #[must_use]
-    async fn transaction<F, Fut, R, E>(&self, callback: F) -> Result<Result<R, E>, TransactionError<Self::UoW>>
+    async fn transaction<F, Fut, R, E>(
+        &self,
+        callback: F,
+    ) -> Result<Result<R, E>, TransactionError<Self::UoW>>
     where
         F: FnOnce(Self::UoW) -> Fut + Send,
         Fut: std::future::Future<Output = (Self::UoW, Result<R, E>)> + Send,
@@ -87,20 +90,20 @@ impl<U: UoW> TransactionError<U> {
 }
 
 /// Trait for an Isolation level selector.
-/// 
+///
 /// Sets transaction isolation level for a new Transaction manager.
 /// Ensures that the underlying platform supports requested isolation level.
 /// Supports configuring a chain of fallbacks.
 pub trait IsolationLevelSelector<M: TxManager> {
     /// Specifies the next preferable isolation level if previous specified levels
     /// are not supported by the platform.
-    /// 
+    ///
     /// Used to configure a chain of fallbacks.
     #[must_use]
     fn or(self, level: IsolationLevel) -> Self;
 
     /// Returns a new Transaction manager with configured isolation level.
-    /// 
+    ///
     /// If none of specified isolation levels are supported by the underlying platform,
     /// returns "IsloationLevelNotSupportedError"
     fn if_platform_supports(self) -> Result<M, IsloationLevelNotSupportedError>;
@@ -109,7 +112,6 @@ pub trait IsolationLevelSelector<M: TxManager> {
 #[derive(Error, Debug)]
 #[error("isolation level is not supported by the underlying platform")]
 pub struct IsloationLevelNotSupportedError {}
-
 
 /// Transaction isolation levels.
 ///

@@ -18,6 +18,7 @@ default = []
 
 sqlx = ["dep:sqlx"]
 sqlx-sqlite = ["sqlx", "sqlx/sqlite", "sqlx/runtime-tokio"]
+sqlx-postgresql = ["sqlx", "sqlx/postgres", "sqlx/runtime-tokio"]
 
 [dependencies]
 async-trait = "0.1"
@@ -26,3 +27,5 @@ sqlx = { version = "0.9", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+testcontainers = "0.27"
+testcontainers-modules = { version = "0.15", features = ["postgres"] }

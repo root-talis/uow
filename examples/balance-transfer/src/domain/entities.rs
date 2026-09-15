@@ -1,4 +1,7 @@
-use crate::domain::{errors::WithdrawFailure, value_objects::{AccountNumber, CreditsAmount}};
+use crate::domain::{
+    errors::WithdrawFailure,
+    value_objects::{AccountNumber, CreditsAmount},
+};
 
 #[derive(Debug)]
 pub struct Account {

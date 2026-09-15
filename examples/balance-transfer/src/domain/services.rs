@@ -1,6 +1,10 @@
 use crate::domain::{entities::Account, errors::TransferFailure, value_objects::CreditsAmount};
 
-pub fn transfer_credits(from: &mut Account, amount: CreditsAmount, to: &mut Account) -> Result<(), TransferFailure> {
+pub fn transfer_credits(
+    from: &mut Account,
+    amount: CreditsAmount,
+    to: &mut Account,
+) -> Result<(), TransferFailure> {
     from.withdraw(amount)?;
     to.deposit(amount);
     Ok(())
@@ -69,7 +73,9 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(TransferFailure::WithdrawFailure(WithdrawFailure::InsufficientFunds))
+            Err(TransferFailure::WithdrawFailure(
+                WithdrawFailure::InsufficientFunds
+            ))
         ));
     }
 

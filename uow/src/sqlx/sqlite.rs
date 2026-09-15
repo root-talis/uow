@@ -1,7 +1,10 @@
 use async_trait::async_trait;
 use sqlx::{Sqlite, SqlitePool, Transaction};
 
-use crate::{IsloationLevelNotSupportedError, IsolationLevel, IsolationLevelSelector, TransactionError, TxManager, UoW};
+use crate::{
+    IsloationLevelNotSupportedError, IsolationLevel, IsolationLevelSelector, TransactionError,
+    TxManager, UoW,
+};
 
 /// SQLx-specific UoW implementation wrapping a SQLite transaction.
 #[derive(Debug)]
@@ -60,14 +63,13 @@ impl SqliteTxManager {
         let mut tx = self.pool.begin().await?;
         // PRAGMA values cannot be parameterised in SQLite.
         // The value is always a hard-coded 0 or 1, so injection is impossible.
-        let pragma_sql: &'static str = if matches!(self.isolation_level, Some(IsolationLevel::ReadUncommitted)) {
-            "PRAGMA read_uncommitted = 1"
-        } else {
-            "PRAGMA read_uncommitted = 0"
-        };
-        sqlx::query(pragma_sql)
-            .execute(tx.as_mut())
-            .await?;
+        let pragma_sql: &'static str =
+            if matches!(self.isolation_level, Some(IsolationLevel::ReadUncommitted)) {
+                "PRAGMA read_uncommitted = 1"
+            } else {
+                "PRAGMA read_uncommitted = 0"
+            };
+        sqlx::query(pragma_sql).execute(tx.as_mut()).await?;
         Ok(SqliteUoW::new(tx))
     }
 }
@@ -76,23 +78,33 @@ impl SqliteTxManager {
 impl TxManager for SqliteTxManager {
     type UoW = SqliteUoW;
 
-    async fn transaction<F, Fut, R, E>(&self, f: F) -> Result<Result<R, E>, TransactionError<Self::UoW>>
+    async fn transaction<F, Fut, R, E>(
+        &self,
+        f: F,
+    ) -> Result<Result<R, E>, TransactionError<Self::UoW>>
     where
         F: FnOnce(Self::UoW) -> Fut + Send,
         Fut: std::future::Future<Output = (Self::UoW, Result<R, E>)> + Send,
         R: Send,
         E: Send,
     {
-        let uow = self.unit_of_work().await.map_err(TransactionError::BeginFailed)?;
+        let uow = self
+            .unit_of_work()
+            .await
+            .map_err(TransactionError::BeginFailed)?;
         let (mut uow, r) = f(uow).await;
         match r {
             Ok(ok) => {
-                uow.reset_pragma().await.map_err(TransactionError::CommitFailed)?;
+                uow.reset_pragma()
+                    .await
+                    .map_err(TransactionError::CommitFailed)?;
                 uow.commit().await.map_err(TransactionError::CommitFailed)?;
                 Ok(Ok(ok))
             }
             Err(err) => {
-                uow.reset_pragma().await.map_err(TransactionError::RollbackFailed)?;
+                uow.reset_pragma()
+                    .await
+                    .map_err(TransactionError::RollbackFailed)?;
                 if let Err(e) = uow.rollback().await {
                     return Err(TransactionError::RollbackFailed(e));
                 }
@@ -135,7 +147,7 @@ impl IsolationLevelSelector<SqliteTxManager> for SqliteIsolationLevelSelector {
 
     fn if_platform_supports(mut self) -> Result<SqliteTxManager, IsloationLevelNotSupportedError> {
         if self.level.is_none() {
-            return Err(IsloationLevelNotSupportedError{});
+            return Err(IsloationLevelNotSupportedError {});
         }
 
         self.man.isolation_level = self.level;
@@ -154,7 +166,7 @@ mod tests {
     mod unit {
         use super::*;
 
-        /// TS-U01: `SqliteIsolationLevelSelector::if_supported` returns `Some` for
+        /// TS-U01-SQLITE: `SqliteIsolationLevelSelector::if_supported` returns `Some` for
         /// `Serializable` and `ReadUncommitted`.
         ///
         /// ## What is being tested
@@ -174,7 +186,7 @@ mod tests {
             );
         }
 
-        /// TS-U02: `SqliteIsolationLevelSelector::if_supported` returns `None` for
+        /// TS-U02-SQLITE: `SqliteIsolationLevelSelector::if_supported` returns `None` for
         /// `ReadCommitted` and `RepeatableRead`.
         ///
         /// ## What is being tested
@@ -194,7 +206,7 @@ mod tests {
             );
         }
 
-        /// TS-U03: `SqliteIsolationLevelSelector::or` chains fallbacks correctly.
+        /// TS-U03-SQLITE: `SqliteIsolationLevelSelector::or` chains fallbacks correctly.
         ///
         /// ## What is being tested
         /// The fallback logic: when the first requested level is unsupported the selector tries
@@ -206,18 +218,25 @@ mod tests {
         #[tokio::test]
         async fn or_chains_fallbacks() {
             let man = dummy_manager().await;
-            let result = SqliteIsolationLevelSelector::new(man.clone(), IsolationLevel::ReadCommitted)
-                .or(IsolationLevel::Serializable)
-                .if_platform_supports();
-            assert_eq!(result.unwrap().isolation_level, Some(IsolationLevel::Serializable));
+            let result =
+                SqliteIsolationLevelSelector::new(man.clone(), IsolationLevel::ReadCommitted)
+                    .or(IsolationLevel::Serializable)
+                    .if_platform_supports();
+            assert_eq!(
+                result.unwrap().isolation_level,
+                Some(IsolationLevel::Serializable)
+            );
 
             let result2 = SqliteIsolationLevelSelector::new(man, IsolationLevel::Serializable)
                 .or(IsolationLevel::ReadUncommitted)
                 .if_platform_supports();
-            assert_eq!(result2.unwrap().isolation_level, Some(IsolationLevel::Serializable));
+            assert_eq!(
+                result2.unwrap().isolation_level,
+                Some(IsolationLevel::Serializable)
+            );
         }
 
-        /// TS-U04: `SqliteIsolationLevelSelector::if_platform_supports` returns `Ok(manager)`
+        /// TS-U04-SQLITE: `SqliteIsolationLevelSelector::if_platform_supports` returns `Ok(manager)`
         /// when the level is `Some`.
         ///
         /// ## What is being tested
@@ -233,10 +252,13 @@ mod tests {
             let result = SqliteIsolationLevelSelector::new(man, IsolationLevel::Serializable)
                 .if_platform_supports();
             assert!(result.is_ok());
-            assert_eq!(result.unwrap().isolation_level, Some(IsolationLevel::Serializable));
+            assert_eq!(
+                result.unwrap().isolation_level,
+                Some(IsolationLevel::Serializable)
+            );
         }
 
-        /// TS-U05: `SqliteIsolationLevelSelector::if_platform_supports` returns
+        /// TS-U05-SQLITE: `SqliteIsolationLevelSelector::if_platform_supports` returns
         /// `Err(IsloationLevelNotSupportedError)` when the level is `None`.
         ///
         /// ## What is being tested
@@ -254,7 +276,7 @@ mod tests {
             assert!(result.is_err());
         }
 
-        /// TS-U06: `TransactionError::into_inner` extracts the underlying error.
+        /// TS-U06-SQLITE: `TransactionError::into_inner` extracts the underlying error.
         ///
         /// ## What is being tested
         /// The utility method that discards the `BeginFailed`/`CommitFailed`/`RollbackFailed`
@@ -268,14 +290,18 @@ mod tests {
             let inner = sqlx::Error::RowNotFound;
             let err_begin = TransactionError::<SqliteUoW>::BeginFailed(inner);
             let err_commit = TransactionError::<SqliteUoW>::CommitFailed(sqlx::Error::RowNotFound);
-            let err_rollback = TransactionError::<SqliteUoW>::RollbackFailed(sqlx::Error::RowNotFound);
+            let err_rollback =
+                TransactionError::<SqliteUoW>::RollbackFailed(sqlx::Error::RowNotFound);
 
             assert!(matches!(err_begin.into_inner(), sqlx::Error::RowNotFound));
             assert!(matches!(err_commit.into_inner(), sqlx::Error::RowNotFound));
-            assert!(matches!(err_rollback.into_inner(), sqlx::Error::RowNotFound));
+            assert!(matches!(
+                err_rollback.into_inner(),
+                sqlx::Error::RowNotFound
+            ));
         }
 
-        /// TS-U07: `SqliteTxManager::isolated_at` seeds the selector with the requested level.
+        /// TS-U07-SQLITE: `SqliteTxManager::isolated_at` seeds the selector with the requested level.
         ///
         /// ## What is being tested
         /// The API contract of `isolated_at`: the returned selector must remember the
@@ -287,8 +313,13 @@ mod tests {
         #[tokio::test]
         async fn isolated_at_seeds_selector() {
             let man = dummy_manager().await;
-            let result = man.isolated_at(IsolationLevel::Serializable).if_platform_supports();
-            assert_eq!(result.unwrap().isolation_level, Some(IsolationLevel::Serializable));
+            let result = man
+                .isolated_at(IsolationLevel::Serializable)
+                .if_platform_supports();
+            assert_eq!(
+                result.unwrap().isolation_level,
+                Some(IsolationLevel::Serializable)
+            );
         }
     }
 
@@ -307,7 +338,7 @@ mod tests {
                 .expect("in-memory pool")
         }
 
-        /// TS-01: `SqliteTxManager::transaction` commits and persists data.
+        /// TS-01-SQLITE: `SqliteTxManager::transaction` commits and persists data.
         ///
         /// ## What is being tested
         /// The `transaction` method API: when the closure returns `Ok`, changes are committed
@@ -345,7 +376,7 @@ mod tests {
             assert_eq!(row.0, 42);
         }
 
-        /// TS-02: `SqliteTxManager::transaction` rolls back when the closure returns `Err`.
+        /// TS-02-SQLITE: `SqliteTxManager::transaction` rolls back when the closure returns `Err`.
         ///
         /// ## What is being tested
         /// The `transaction` method API automatically rolls back on failure.
@@ -377,7 +408,7 @@ mod tests {
             assert_eq!(row.0, 0);
         }
 
-        /// TS-03: `SqliteTxManager::transaction` commits successfully even when the
+        /// TS-03-SQLITE: `SqliteTxManager::transaction` commits successfully even when the
         /// closure does nothing.
         ///
         /// ## What is being tested
@@ -399,7 +430,7 @@ mod tests {
             assert!(matches!(result, Ok(Ok(()))));
         }
 
-        /// TS-04: `SqliteTxManager::transaction` returns `TransactionError::BeginFailed`
+        /// TS-04-SQLITE: `SqliteTxManager::transaction` returns `TransactionError::BeginFailed`
         /// when the pool is closed.
         ///
         /// ## What is being tested
@@ -422,7 +453,7 @@ mod tests {
             assert!(matches!(result, Err(TransactionError::BeginFailed(_))));
         }
 
-        /// TS-05: `Serializable` isolation level is propagated from
+        /// TS-05-SQLITE: `Serializable` isolation level is propagated from
         /// `SqliteTxManager` into the SQLite transaction.
         ///
         /// ## What is being tested
@@ -454,7 +485,7 @@ mod tests {
             assert!(matches!(result, Ok(Ok(0))));
         }
 
-        /// TS-06: `ReadUncommitted` isolation level is propagated from
+        /// TS-06-SQLITE: `ReadUncommitted` isolation level is propagated from
         /// `SqliteTxManager` into the SQLite transaction.
         ///
         /// ## What is being tested
@@ -488,7 +519,7 @@ mod tests {
             assert!(matches!(result, Ok(Ok(1))));
         }
 
-        /// TS-07: A `ReadUncommitted` transaction commits and the same physical
+        /// TS-07-SQLITE: A `ReadUncommitted` transaction commits and the same physical
         /// connection is reused by a `Serializable` transaction.
         ///
         /// ## What is being tested
@@ -544,7 +575,7 @@ mod tests {
             assert!(matches!(result_b, Ok(Ok(()))));
         }
 
-        /// TS-08: A `ReadUncommitted` transaction rolls back and the same physical
+        /// TS-08-SQLITE: A `ReadUncommitted` transaction rolls back and the same physical
         /// connection is reused by a `Serializable` transaction.
         ///
         /// ## What is being tested
@@ -601,7 +632,7 @@ mod tests {
             assert!(matches!(result_b, Ok(Ok(()))));
         }
 
-        /// TS-09: `SqliteTxManager::transaction` returns `TransactionError::CommitFailed`
+        /// TS-09-SQLITE: `SqliteTxManager::transaction` returns `TransactionError::CommitFailed`
         /// when the inner `UoW::commit` fails.
         ///
         /// ## What is being tested
@@ -633,7 +664,7 @@ mod tests {
             assert!(matches!(result, Err(TransactionError::CommitFailed(_))));
         }
 
-        /// TS-10: `SqliteTxManager::transaction` returns `TransactionError::RollbackFailed`
+        /// TS-10-SQLITE: `SqliteTxManager::transaction` returns `TransactionError::RollbackFailed`
         /// when the inner `UoW::rollback` fails.
         ///
         /// ## What is being tested
@@ -665,7 +696,7 @@ mod tests {
             assert!(matches!(result, Err(TransactionError::RollbackFailed(_))));
         }
 
-        /// TS-11: Fallback isolation level chain resolves end-to-end.
+        /// TS-11-SQLITE: Fallback isolation level chain resolves end-to-end.
         ///
         /// ## What is being tested
         /// The full selector flow: chaining unsupported levels followed by a supported
@@ -696,7 +727,7 @@ mod tests {
             assert!(matches!(result, Ok(Ok(()))));
         }
 
-        /// TS-12: `isolated_at(RepeatableRead).if_platform_supports()` fails on SQLite.
+        /// TS-12-SQLITE: `isolated_at(RepeatableRead).if_platform_supports()` fails on SQLite.
         ///
         /// ## What is being tested
         /// The platform constraint: `RepeatableRead` is unsupported and the selector
@@ -732,7 +763,7 @@ mod tests {
                 .expect("in-memory pool")
         }
 
-        /// TS-01: `transaction!` commits and persists data.
+        /// TS-01-SQLITE: `transaction!` commits and persists data.
         ///
         /// ## What is being tested
         /// The `transaction!` macro API: when the body returns `Ok`, changes are committed
@@ -769,7 +800,7 @@ mod tests {
             assert_eq!(row.0, 42);
         }
 
-        /// TS-02: `transaction!` rolls back when the body returns `Err`.
+        /// TS-02-SQLITE: `transaction!` rolls back when the body returns `Err`.
         ///
         /// ## What is being tested
         /// The `transaction!` macro API automatically rolls back on failure.
@@ -800,7 +831,7 @@ mod tests {
             assert_eq!(row.0, 0);
         }
 
-        /// TS-03: `transaction!` commits successfully even when the body does nothing.
+        /// TS-03-SQLITE: `transaction!` commits successfully even when the body does nothing.
         ///
         /// ## What is being tested
         /// The minimal success path: beginning a transaction via the macro and returning
@@ -824,7 +855,7 @@ mod tests {
             assert!(matches!(result, Ok(Ok(()))));
         }
 
-        /// TS-04: `transaction!` returns `TransactionError::BeginFailed`
+        /// TS-04-SQLITE: `transaction!` returns `TransactionError::BeginFailed`
         /// when the pool is closed.
         ///
         /// ## What is being tested
@@ -849,7 +880,7 @@ mod tests {
             assert!(matches!(result, Err(TransactionError::BeginFailed(_))));
         }
 
-        /// TS-05: `Serializable` isolation level is propagated through the
+        /// TS-05-SQLITE: `Serializable` isolation level is propagated through the
         /// `transaction!` macro into the SQLite transaction.
         ///
         /// ## What is being tested
@@ -880,7 +911,7 @@ mod tests {
             assert!(matches!(result, Ok(Ok(0))));
         }
 
-        /// TS-06: `ReadUncommitted` isolation level is propagated through the
+        /// TS-06-SQLITE: `ReadUncommitted` isolation level is propagated through the
         /// `transaction!` macro into the SQLite transaction.
         ///
         /// ## What is being tested
@@ -913,7 +944,7 @@ mod tests {
             assert!(matches!(result, Ok(Ok(1))));
         }
 
-        /// TS-07: A `ReadUncommitted` transaction commits via `transaction!` and the same
+        /// TS-07-SQLITE: A `ReadUncommitted` transaction commits via `transaction!` and the same
         /// physical connection is reused by a `Serializable` transaction.
         ///
         /// ## What is being tested
@@ -967,7 +998,7 @@ mod tests {
             assert!(matches!(result_b, Ok(Ok(()))));
         }
 
-        /// TS-08: A `ReadUncommitted` transaction rolls back via `transaction!` and the same
+        /// TS-08-SQLITE: A `ReadUncommitted` transaction rolls back via `transaction!` and the same
         /// physical connection is reused by a `Serializable` transaction.
         ///
         /// ## What is being tested
@@ -1022,7 +1053,7 @@ mod tests {
             assert!(matches!(result_b, Ok(Ok(()))));
         }
 
-        /// TS-09: `transaction!` returns `TransactionError::CommitFailed`
+        /// TS-09-SQLITE: `transaction!` returns `TransactionError::CommitFailed`
         /// when the inner `UoW::commit` fails.
         ///
         /// ## What is being tested
@@ -1053,7 +1084,7 @@ mod tests {
             assert!(matches!(result, Err(TransactionError::CommitFailed(_))));
         }
 
-        /// TS-10: `transaction!` returns `TransactionError::RollbackFailed`
+        /// TS-10-SQLITE: `transaction!` returns `TransactionError::RollbackFailed`
         /// when the inner `UoW::rollback` fails.
         ///
         /// ## What is being tested
@@ -1084,7 +1115,7 @@ mod tests {
             assert!(matches!(result, Err(TransactionError::RollbackFailed(_))));
         }
 
-        /// TS-11: Fallback isolation level chain resolves end-to-end via `transaction!`.
+        /// TS-11-SQLITE: Fallback isolation level chain resolves end-to-end via `transaction!`.
         ///
         /// ## What is being tested
         /// The full selector flow: chaining unsupported levels followed by a supported
@@ -1114,7 +1145,7 @@ mod tests {
             assert!(matches!(result, Ok(Ok(()))));
         }
 
-        /// TS-13: `transaction!` with `async move` commits when the body returns `Ok`.
+        /// TS-13-SQLITE: `transaction!` with `async move` commits when the body returns `Ok`.
         ///
         /// ## What is being tested
         /// The macro's `move` variant correctly delegates to `TxManager::transaction`
@@ -1164,7 +1195,9 @@ mod tests {
     /// Uses an in-memory pool created inside an async runtime.
     async fn dummy_manager() -> SqliteTxManager {
         SqliteTxManager {
-            pool: SqlitePool::connect("sqlite::memory:").await.expect("in-memory pool"),
+            pool: SqlitePool::connect("sqlite::memory:")
+                .await
+                .expect("in-memory pool"),
             isolation_level: None,
         }
     }
