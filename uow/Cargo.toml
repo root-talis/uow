@@ -15,6 +15,7 @@ unsafe_code = "forbid"
 
 [features]
 default = []
+test-utils = []
 
 sqlx = ["dep:sqlx"]
 sqlx-sqlite = ["sqlx", "sqlx/sqlite", "sqlx/runtime-tokio"]

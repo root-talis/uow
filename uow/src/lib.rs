@@ -1,6 +1,9 @@
 mod uow;
 pub use uow::*;
 
+#[cfg(feature = "test-utils")]
+pub mod test_utils;
+
 #[cfg(feature = "sqlx")]
 pub mod sqlx;
 

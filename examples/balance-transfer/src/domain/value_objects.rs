@@ -2,7 +2,7 @@ use std::num::NonZeroU32;
 
 use derive_more::Display;
 
-#[derive(Debug, Display, Clone, Copy)]
+#[derive(Debug, Display, Clone, Copy, PartialEq, Eq)]
 #[display("{_0}")]
 pub struct AccountNumber(NonZeroU32);
 impl AccountNumber {

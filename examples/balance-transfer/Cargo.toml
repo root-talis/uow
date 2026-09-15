@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-uow = { path = "../../uow", features = ["sqlx-sqlite"] }
+uow = { path = "../../uow", features = ["sqlx-sqlite", "test-utils"] }
 
 tokio = { version = "1", features = ["full"] }
 axum = "0.8"
