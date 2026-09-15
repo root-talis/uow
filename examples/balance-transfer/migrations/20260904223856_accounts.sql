@@ -3,4 +3,5 @@ create table accounts (
     balance INTEGER NOT NULL
 );
 
+-- this is for demonstration purposes
 insert into accounts (id, balance) values (1, 100000), (2, 200000);
