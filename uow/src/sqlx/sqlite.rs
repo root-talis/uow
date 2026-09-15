@@ -154,7 +154,7 @@ mod tests {
     mod unit {
         use super::*;
 
-        /// Scenario: `SqliteIsolationLevelSelector::if_supported` returns `Some` for
+        /// TS-U01: `SqliteIsolationLevelSelector::if_supported` returns `Some` for
         /// `Serializable` and `ReadUncommitted`.
         ///
         /// ## What is being tested
@@ -174,7 +174,7 @@ mod tests {
             );
         }
 
-        /// Scenario: `SqliteIsolationLevelSelector::if_supported` returns `None` for
+        /// TS-U02: `SqliteIsolationLevelSelector::if_supported` returns `None` for
         /// `ReadCommitted` and `RepeatableRead`.
         ///
         /// ## What is being tested
@@ -194,7 +194,7 @@ mod tests {
             );
         }
 
-        /// Scenario: `SqliteIsolationLevelSelector::or` chains fallbacks correctly.
+        /// TS-U03: `SqliteIsolationLevelSelector::or` chains fallbacks correctly.
         ///
         /// ## What is being tested
         /// The fallback logic: when the first requested level is unsupported the selector tries
@@ -217,7 +217,7 @@ mod tests {
             assert_eq!(result2.unwrap().isolation_level, Some(IsolationLevel::Serializable));
         }
 
-        /// Scenario: `SqliteIsolationLevelSelector::if_platform_supports` returns `Ok(manager)`
+        /// TS-U04: `SqliteIsolationLevelSelector::if_platform_supports` returns `Ok(manager)`
         /// when the level is `Some`.
         ///
         /// ## What is being tested
@@ -236,7 +236,7 @@ mod tests {
             assert_eq!(result.unwrap().isolation_level, Some(IsolationLevel::Serializable));
         }
 
-        /// Scenario: `SqliteIsolationLevelSelector::if_platform_supports` returns
+        /// TS-U05: `SqliteIsolationLevelSelector::if_platform_supports` returns
         /// `Err(IsloationLevelNotSupportedError)` when the level is `None`.
         ///
         /// ## What is being tested
@@ -254,7 +254,7 @@ mod tests {
             assert!(result.is_err());
         }
 
-        /// Scenario: `TransactionError::into_inner` extracts the underlying error.
+        /// TS-U06: `TransactionError::into_inner` extracts the underlying error.
         ///
         /// ## What is being tested
         /// The utility method that discards the `BeginFailed`/`CommitFailed`/`RollbackFailed`
@@ -275,7 +275,7 @@ mod tests {
             assert!(matches!(err_rollback.into_inner(), sqlx::Error::RowNotFound));
         }
 
-        /// Scenario: `SqliteTxManager::isolated_at` seeds the selector with the requested level.
+        /// TS-U07: `SqliteTxManager::isolated_at` seeds the selector with the requested level.
         ///
         /// ## What is being tested
         /// The API contract of `isolated_at`: the returned selector must remember the
@@ -293,9 +293,9 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // Integration tests (require an in-memory SQLite database)
+    // Integration tests — method API (require an in-memory SQLite database)
     // ------------------------------------------------------------------
-    mod integration {
+    mod integration_method {
         use super::*;
         use sqlx::sqlite::SqlitePoolOptions;
 
@@ -307,10 +307,10 @@ mod tests {
                 .expect("in-memory pool")
         }
 
-    /// Scenario: `SqliteTxManager::transaction` commits and persists data.
+        /// TS-01: `SqliteTxManager::transaction` commits and persists data.
         ///
         /// ## What is being tested
-        /// The `transaction` API: when the closure returns `Ok`, changes are committed
+        /// The `transaction` method API: when the closure returns `Ok`, changes are committed
         /// and visible to subsequent connections.
         ///
         /// ## Testing strategy
@@ -318,7 +318,7 @@ mod tests {
         /// assert the outer result is `Ok(Ok(()))`, then query the same database via
         /// the pool and assert the row exists.
         #[tokio::test]
-        async fn transaction_commits_and_persists_data() {
+        async fn ts_01_commits_and_persists_data() {
             let pool = in_memory_pool().await;
             let man = SqliteTxManager::new(pool.clone());
 
@@ -345,48 +345,16 @@ mod tests {
             assert_eq!(row.0, 42);
         }
 
-        /// Scenario: `SqliteTxManager::transaction` commits when the closure returns `Ok`.
+        /// TS-02: `SqliteTxManager::transaction` rolls back when the closure returns `Err`.
         ///
         /// ## What is being tested
-        /// The high-level `transaction` API automatically commits on success.
-        ///
-        /// ## Testing strategy
-        /// Call `transaction` with a closure that creates a table and returns `Ok(())`,
-        /// assert the outer result is `Ok(Ok(()))`, then verify the table exists.
-        #[tokio::test]
-        async fn transaction_commits_on_ok() {
-            let pool = in_memory_pool().await;
-            let man = SqliteTxManager::new(pool.clone());
-
-            let result = man
-                .transaction(|mut uow| async move {
-                    sqlx::query("CREATE TABLE t (id INTEGER PRIMARY KEY)")
-                        .execute(uow.tx_mut().as_mut())
-                        .await
-                        .unwrap();
-                    (uow, Ok::<(), ()>(()))
-                })
-                .await;
-
-            assert!(matches!(result, Ok(Ok(()))));
-
-            let row: (i64,) = sqlx::query_as("SELECT count(*) FROM sqlite_master WHERE name = 't'")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-            assert_eq!(row.0, 1);
-        }
-
-        /// Scenario: `SqliteTxManager::transaction` rolls back when the closure returns `Err`.
-        ///
-        /// ## What is being tested
-        /// The high-level `transaction` API automatically rolls back on failure.
+        /// The `transaction` method API automatically rolls back on failure.
         ///
         /// ## Testing strategy
         /// Call `transaction` with a closure that creates a table and then returns `Err`,
         /// assert the outer result is `Ok(Err(...))`, then verify the table does not exist.
         #[tokio::test]
-        async fn transaction_rolls_back_on_err() {
+        async fn ts_02_rolls_back_on_err() {
             let pool = in_memory_pool().await;
             let man = SqliteTxManager::new(pool.clone());
 
@@ -409,7 +377,7 @@ mod tests {
             assert_eq!(row.0, 0);
         }
 
-        /// Scenario: `SqliteTxManager::transaction` commits successfully even when the
+        /// TS-03: `SqliteTxManager::transaction` commits successfully even when the
         /// closure does nothing.
         ///
         /// ## What is being tested
@@ -420,7 +388,7 @@ mod tests {
         /// Call `transaction` with a no-op closure that returns `Ok(())`, then assert
         /// the outer result is `Ok(Ok(()))`.
         #[tokio::test]
-        async fn transaction_begins_and_commits_empty() {
+        async fn ts_03_begins_and_commits_empty() {
             let pool = in_memory_pool().await;
             let man = SqliteTxManager::new(pool);
 
@@ -431,7 +399,7 @@ mod tests {
             assert!(matches!(result, Ok(Ok(()))));
         }
 
-        /// Scenario: `SqliteTxManager::transaction` returns `TransactionError::BeginFailed`
+        /// TS-04: `SqliteTxManager::transaction` returns `TransactionError::BeginFailed`
         /// when the pool is closed.
         ///
         /// ## What is being tested
@@ -442,7 +410,7 @@ mod tests {
         /// Close the pool before calling `transaction`, then assert the result is
         /// `Err(TransactionError::BeginFailed(...))`.
         #[tokio::test]
-        async fn transaction_begin_failed_when_pool_closed() {
+        async fn ts_04_begin_failed_when_pool_closed() {
             let pool = in_memory_pool().await;
             let man = SqliteTxManager::new(pool.clone());
             pool.close().await;
@@ -454,165 +422,11 @@ mod tests {
             assert!(matches!(result, Err(TransactionError::BeginFailed(_))));
         }
 
-        /// Scenario: `SqliteTxManager::transaction` returns `TransactionError::CommitFailed`
-        /// when the inner `UoW::commit` fails.
-        ///
-        /// ## What is being tested
-        /// The `transaction` helper's error-path: if the closure returns `Ok` but the
-        /// subsequent commit fails, the failure is wrapped in
-        /// `TransactionError::CommitFailed` rather than being silently dropped.
-        ///
-        /// ## Testing strategy
-        /// Force commit to fail by ending the underlying transaction early.  Inside
-        /// the closure we execute `ROLLBACK`, which terminates the transaction.
-        /// Returning `Ok` from the closure causes `transaction` to attempt commit;
-        /// because the transaction is already ended, sqlx returns an error that is
-        /// propagated as `TransactionError::CommitFailed`.
-        #[tokio::test]
-        async fn transaction_propagates_commit_failure() {
-            let pool = in_memory_pool().await;
-            let man = SqliteTxManager::new(pool);
-
-            let result = man
-                .transaction(|mut uow| async move {
-                    sqlx::query("ROLLBACK")
-                        .execute(uow.tx_mut().as_mut())
-                        .await
-                        .unwrap();
-                    (uow, Ok::<(), ()>(()))
-                })
-                .await;
-
-            assert!(matches!(result, Err(TransactionError::CommitFailed(_))));
-        }
-
-        /// Scenario: `SqliteTxManager::transaction` returns `TransactionError::RollbackFailed`
-        /// when the inner `UoW::rollback` fails.
-        ///
-        /// ## What is being tested
-        /// The `transaction` helper's error-path: if the closure returns `Err` and the
-        /// subsequent rollback fails, the failure is wrapped in
-        /// `TransactionError::RollbackFailed` rather than being silently dropped.
-        ///
-        /// ## Testing strategy
-        /// Force rollback to fail by ending the underlying transaction early.  Inside
-        /// the closure we execute `ROLLBACK`, which terminates the transaction.
-        /// Returning `Err` from the closure causes `transaction` to attempt rollback;
-        /// because the transaction is already ended, sqlx returns an error that is
-        /// propagated as `TransactionError::RollbackFailed`.
-        #[tokio::test]
-        async fn transaction_propagates_rollback_failure() {
-            let pool = in_memory_pool().await;
-            let man = SqliteTxManager::new(pool);
-
-            let result = man
-                .transaction(|mut uow| async move {
-                    sqlx::query("ROLLBACK")
-                        .execute(uow.tx_mut().as_mut())
-                        .await
-                        .unwrap();
-                    (uow, Err::<(), &str>("intentional"))
-                })
-                .await;
-
-            assert!(matches!(result, Err(TransactionError::RollbackFailed(_))));
-        }
-
-        /// Scenario: `tx_mut` allows executing queries on the underlying transaction.
-        ///
-        /// ## What is being tested
-        /// The mutability contract: `tx_mut` yields a mutable reference that can be
-        /// used to drive SQLx queries.
-        ///
-        /// ## Testing strategy
-        /// Call `transaction` with a closure that uses `tx_mut` to create a table,
-        /// assert the outer result is `Ok(Ok(()))`.
-        #[tokio::test]
-        async fn tx_mut_allows_query_execution() {
-            let pool = in_memory_pool().await;
-            let man = SqliteTxManager::new(pool);
-
-            let result = man
-                .transaction(|mut uow| async move {
-                    sqlx::query("CREATE TABLE t (id INTEGER PRIMARY KEY)")
-                        .execute(uow.tx_mut().as_mut())
-                        .await
-                        .unwrap();
-                    (uow, Ok::<(), ()>(()))
-                })
-                .await;
-
-            assert!(matches!(result, Ok(Ok(()))));
-        }
-
-        /// Scenario: Default isolation level (`Serializable`) is active on new
-        /// transactions.
-        ///
-        /// ## What is being tested
-        /// SQLite's default serializable isolation: `PRAGMA read_uncommitted` is 0 on a
-        /// fresh transaction, which prevents dirty reads.
-        ///
-        /// ## Testing strategy
-        /// Call `transaction` with a closure that queries `PRAGMA read_uncommitted`,
-        /// returns `Ok(row.0)`, and assert the outer result is `Ok(Ok(0))`.
-        #[tokio::test]
-        async fn serializable_prevents_dirty_reads() {
-            let pool = in_memory_pool().await;
-            let man = SqliteTxManager::new(pool);
-
-            let result = man
-                .transaction(|mut uow| async move {
-                    let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
-                        .fetch_one(uow.tx_mut().as_mut())
-                        .await
-                        .unwrap();
-                    (uow, Ok::<i64, ()>(row.0))
-                })
-                .await;
-
-            assert!(matches!(result, Ok(Ok(0))));
-        }
-
-        /// Scenario: `ReadUncommitted` isolation level is propagated from
+        /// TS-05: `Serializable` isolation level is propagated from
         /// `SqliteTxManager` into the SQLite transaction.
         ///
         /// ## What is being tested
-        /// The propagation chain from `TxManager.isolation_level` into the SQLite
-        /// transaction state.  When a manager is configured with
-        /// `ReadUncommitted`, the internal helper must issue
-        /// `PRAGMA read_uncommitted = 1` before handing the transaction to the caller.
-        ///
-        /// ## Testing strategy
-        /// Configure a manager with `ReadUncommitted`, call `transaction` with a
-        /// closure that queries `PRAGMA read_uncommitted` and returns `Ok(row.0)`,
-        /// then assert the outer result is `Ok(Ok(1))`.
-        #[tokio::test]
-        async fn isolation_level_propagated_to_sqlite_transaction() {
-            let pool = in_memory_pool().await;
-            let man = SqliteTxManager::new(pool)
-                .isolated_at(IsolationLevel::ReadUncommitted)
-                .if_platform_supports()
-                .unwrap();
-
-            let result = man
-                .transaction(|mut uow| async move {
-                    let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
-                        .fetch_one(uow.tx_mut().as_mut())
-                        .await
-                        .unwrap();
-                    (uow, Ok::<i64, ()>(row.0))
-                })
-                .await;
-
-            assert!(matches!(result, Ok(Ok(1))));
-        }
-
-        /// Scenario: `Serializable` isolation level is propagated from
-        /// `SqliteTxManager` into the SQLite transaction.
-        ///
-        /// ## What is being tested
-        /// The symmetric case to `isolation_level_propagated_to_sqlite_transaction`:
-        /// when a manager is explicitly configured with `Serializable`, the resulting
+        /// When a manager is explicitly configured with `Serializable`, the resulting
         /// UoW must keep `PRAGMA read_uncommitted = 0` (the SQLite default).
         ///
         /// ## Testing strategy
@@ -620,7 +434,7 @@ mod tests {
         /// closure that queries `PRAGMA read_uncommitted` and returns `Ok(row.0)`,
         /// then assert the outer result is `Ok(Ok(0))`.
         #[tokio::test]
-        async fn serializable_isolation_level_propagated_to_sqlite_transaction() {
+        async fn ts_05_serializable_isolation_propagated() {
             let pool = in_memory_pool().await;
             let man = SqliteTxManager::new(pool)
                 .isolated_at(IsolationLevel::Serializable)
@@ -640,7 +454,41 @@ mod tests {
             assert!(matches!(result, Ok(Ok(0))));
         }
 
-        /// Scenario: A `ReadUncommitted` transaction commits and the same physical
+        /// TS-06: `ReadUncommitted` isolation level is propagated from
+        /// `SqliteTxManager` into the SQLite transaction.
+        ///
+        /// ## What is being tested
+        /// The propagation chain from `TxManager.isolation_level` into the SQLite
+        /// transaction state.  When a manager is configured with
+        /// `ReadUncommitted`, the internal helper must issue
+        /// `PRAGMA read_uncommitted = 1` before handing the transaction to the caller.
+        ///
+        /// ## Testing strategy
+        /// Configure a manager with `ReadUncommitted`, call `transaction` with a
+        /// closure that queries `PRAGMA read_uncommitted` and returns `Ok(row.0)`,
+        /// then assert the outer result is `Ok(Ok(1))`.
+        #[tokio::test]
+        async fn ts_06_read_uncommitted_isolation_propagated() {
+            let pool = in_memory_pool().await;
+            let man = SqliteTxManager::new(pool)
+                .isolated_at(IsolationLevel::ReadUncommitted)
+                .if_platform_supports()
+                .unwrap();
+
+            let result = man
+                .transaction(|mut uow| async move {
+                    let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
+                        .fetch_one(uow.tx_mut().as_mut())
+                        .await
+                        .unwrap();
+                    (uow, Ok::<i64, ()>(row.0))
+                })
+                .await;
+
+            assert!(matches!(result, Ok(Ok(1))));
+        }
+
+        /// TS-07: A `ReadUncommitted` transaction commits and the same physical
         /// connection is reused by a `Serializable` transaction.
         ///
         /// ## What is being tested
@@ -654,7 +502,7 @@ mod tests {
         ///    and assert `1`, return `Ok(())`.
         /// 3. Call `transaction` on manager B (`Serializable`), query pragma and assert `0`.
         #[tokio::test]
-        async fn isolation_level_resets_after_commit_on_single_connection() {
+        async fn ts_07_isolation_resets_after_commit_on_single_connection() {
             let pool = SqlitePoolOptions::new()
                 .max_connections(1)
                 .connect("sqlite::memory:")
@@ -696,7 +544,7 @@ mod tests {
             assert!(matches!(result_b, Ok(Ok(()))));
         }
 
-        /// Scenario: A `ReadUncommitted` transaction rolls back and the same physical
+        /// TS-08: A `ReadUncommitted` transaction rolls back and the same physical
         /// connection is reused by a `Serializable` transaction.
         ///
         /// ## What is being tested
@@ -711,7 +559,7 @@ mod tests {
         /// 3. Assert the first result is `Ok(Err("rollback me"))`.
         /// 4. Call `transaction` on manager B (`Serializable`), query pragma and assert `0`.
         #[tokio::test]
-        async fn isolation_level_resets_after_rollback_on_single_connection() {
+        async fn ts_08_isolation_resets_after_rollback_on_single_connection() {
             let pool = SqlitePoolOptions::new()
                 .max_connections(1)
                 .connect("sqlite::memory:")
@@ -753,7 +601,71 @@ mod tests {
             assert!(matches!(result_b, Ok(Ok(()))));
         }
 
-        /// Scenario: Fallback isolation level chain resolves end-to-end.
+        /// TS-09: `SqliteTxManager::transaction` returns `TransactionError::CommitFailed`
+        /// when the inner `UoW::commit` fails.
+        ///
+        /// ## What is being tested
+        /// The `transaction` method's error-path: if the closure returns `Ok` but the
+        /// subsequent commit fails, the failure is wrapped in
+        /// `TransactionError::CommitFailed` rather than being silently dropped.
+        ///
+        /// ## Testing strategy
+        /// Force commit to fail by ending the underlying transaction early.  Inside
+        /// the closure we execute `ROLLBACK`, which terminates the transaction.
+        /// Returning `Ok` from the closure causes `transaction` to attempt commit;
+        /// because the transaction is already ended, sqlx returns an error that is
+        /// propagated as `TransactionError::CommitFailed`.
+        #[tokio::test]
+        async fn ts_09_propagates_commit_failure() {
+            let pool = in_memory_pool().await;
+            let man = SqliteTxManager::new(pool);
+
+            let result = man
+                .transaction(|mut uow| async move {
+                    sqlx::query("ROLLBACK")
+                        .execute(uow.tx_mut().as_mut())
+                        .await
+                        .unwrap();
+                    (uow, Ok::<(), ()>(()))
+                })
+                .await;
+
+            assert!(matches!(result, Err(TransactionError::CommitFailed(_))));
+        }
+
+        /// TS-10: `SqliteTxManager::transaction` returns `TransactionError::RollbackFailed`
+        /// when the inner `UoW::rollback` fails.
+        ///
+        /// ## What is being tested
+        /// The `transaction` method's error-path: if the closure returns `Err` and the
+        /// subsequent rollback fails, the failure is wrapped in
+        /// `TransactionError::RollbackFailed` rather than being silently dropped.
+        ///
+        /// ## Testing strategy
+        /// Force rollback to fail by ending the underlying transaction early.  Inside
+        /// the closure we execute `ROLLBACK`, which terminates the transaction.
+        /// Returning `Err` from the closure causes `transaction` to attempt rollback;
+        /// because the transaction is already ended, sqlx returns an error that is
+        /// propagated as `TransactionError::RollbackFailed`.
+        #[tokio::test]
+        async fn ts_10_propagates_rollback_failure() {
+            let pool = in_memory_pool().await;
+            let man = SqliteTxManager::new(pool);
+
+            let result = man
+                .transaction(|mut uow| async move {
+                    sqlx::query("ROLLBACK")
+                        .execute(uow.tx_mut().as_mut())
+                        .await
+                        .unwrap();
+                    (uow, Err::<(), &str>("intentional"))
+                })
+                .await;
+
+            assert!(matches!(result, Err(TransactionError::RollbackFailed(_))));
+        }
+
+        /// TS-11: Fallback isolation level chain resolves end-to-end.
         ///
         /// ## What is being tested
         /// The full selector flow: chaining unsupported levels followed by a supported
@@ -763,7 +675,7 @@ mod tests {
         /// Build a manager via `isolated_at(RepeatableRead).or(Serializable).if_platform_supports()`,
         /// run a transaction that creates a table, and assert it commits successfully.
         #[tokio::test]
-        async fn fallback_chain_end_to_end() {
+        async fn ts_11_fallback_chain_end_to_end() {
             let pool = in_memory_pool().await;
             let man = SqliteTxManager::new(pool)
                 .isolated_at(IsolationLevel::RepeatableRead)
@@ -784,7 +696,7 @@ mod tests {
             assert!(matches!(result, Ok(Ok(()))));
         }
 
-        /// Scenario: `isolated_at(RepeatableRead).if_platform_supports()` fails on SQLite.
+        /// TS-12: `isolated_at(RepeatableRead).if_platform_supports()` fails on SQLite.
         ///
         /// ## What is being tested
         /// The platform constraint: `RepeatableRead` is unsupported and the selector
@@ -793,7 +705,7 @@ mod tests {
         /// ## Testing strategy
         /// Call the selector directly with an unsupported level and assert `Err`.
         #[tokio::test]
-        async fn isolated_at_unsupported_level_fails() {
+        async fn ts_12_isolated_at_unsupported_level_fails() {
             let man = SqliteTxManager {
                 pool: sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap(),
                 isolation_level: None,
@@ -803,24 +715,44 @@ mod tests {
                 .if_platform_supports();
             assert!(result.is_err());
         }
+    }
 
-        /// Scenario: `transaction!` commits when the body returns `Ok`.
+    // ------------------------------------------------------------------
+    // Integration tests — macro API (require an in-memory SQLite database)
+    // ------------------------------------------------------------------
+    mod integration_macro {
+        use super::*;
+        use sqlx::sqlite::SqlitePoolOptions;
+
+        async fn in_memory_pool() -> SqlitePool {
+            SqlitePoolOptions::new()
+                .max_connections(5)
+                .connect("sqlite::memory:")
+                .await
+                .expect("in-memory pool")
+        }
+
+        /// TS-01: `transaction!` commits and persists data.
         ///
         /// ## What is being tested
-        /// The macro's non-move variant correctly delegates to `TxManager::transaction`
-        /// and commits on success.
+        /// The `transaction!` macro API: when the body returns `Ok`, changes are committed
+        /// and visible to subsequent connections.
         ///
         /// ## Testing strategy
-        /// Use `transaction!` with `async { ... }` (non-move) to create a table and
-        /// return `Ok(())`. Assert the outer result is `Ok(Ok(()))`, then verify the
-        /// table exists by querying `sqlite_master`.
+        /// Use `transaction!` with `async { ... }` to create a table and insert a row,
+        /// assert the outer result is `Ok(Ok(()))`, then query the same database via
+        /// the pool and assert the row exists.
         #[tokio::test]
-        async fn macro_commits_on_ok() {
+        async fn ts_01_commits_and_persists_data() {
             let pool = in_memory_pool().await;
             let man = SqliteTxManager::new(pool.clone());
 
             let result = transaction!(man, |mut uow| async {
                 sqlx::query("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+                    .execute(uow.tx_mut().as_mut())
+                    .await
+                    .unwrap();
+                sqlx::query("INSERT INTO t (id) VALUES (42)")
                     .execute(uow.tx_mut().as_mut())
                     .await
                     .unwrap();
@@ -830,25 +762,23 @@ mod tests {
 
             assert!(matches!(result, Ok(Ok(()))));
 
-            let row: (i64,) = sqlx::query_as("SELECT count(*) FROM sqlite_master WHERE name = 't'")
+            let row: (i64,) = sqlx::query_as("SELECT id FROM t")
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-            assert_eq!(row.0, 1);
+            assert_eq!(row.0, 42);
         }
 
-        /// Scenario: `transaction!` rolls back when the body returns `Err`.
+        /// TS-02: `transaction!` rolls back when the body returns `Err`.
         ///
         /// ## What is being tested
-        /// The macro's non-move variant correctly delegates to `TxManager::transaction`
-        /// and rolls back on failure.
+        /// The `transaction!` macro API automatically rolls back on failure.
         ///
         /// ## Testing strategy
-        /// Use `transaction!` with `async { ... }` (non-move) to create a table and
-        /// return `Err("intentional failure")`. Assert the outer result is
-        /// `Ok(Err("intentional failure"))`, then verify the table does not exist.
+        /// Use `transaction!` with `async { ... }` to create a table and return `Err`,
+        /// assert the outer result is `Ok(Err(...))`, then verify the table does not exist.
         #[tokio::test]
-        async fn macro_rolls_back_on_err() {
+        async fn ts_02_rolls_back_on_err() {
             let pool = in_memory_pool().await;
             let man = SqliteTxManager::new(pool.clone());
 
@@ -870,7 +800,321 @@ mod tests {
             assert_eq!(row.0, 0);
         }
 
-        /// Scenario: `transaction!` with `async move` commits when the body returns `Ok`.
+        /// TS-03: `transaction!` commits successfully even when the body does nothing.
+        ///
+        /// ## What is being tested
+        /// The minimal success path: beginning a transaction via the macro and returning
+        /// `Ok(())` produces `Ok(Ok(()))`.
+        ///
+        /// ## Testing strategy
+        /// Use `transaction!` with a no-op body that returns `Ok(())`, then assert
+        /// the outer result is `Ok(Ok(()))`.
+        #[tokio::test]
+        async fn ts_03_begins_and_commits_empty() {
+            let pool = in_memory_pool().await;
+            let man = SqliteTxManager::new(pool);
+
+            let result = transaction!(man, |mut uow| async {
+                // Use uow to suppress unused_mut warning; this is a no-op test.
+                let _ = &uow;
+                Ok::<(), ()>(())
+            })
+            .await;
+
+            assert!(matches!(result, Ok(Ok(()))));
+        }
+
+        /// TS-04: `transaction!` returns `TransactionError::BeginFailed`
+        /// when the pool is closed.
+        ///
+        /// ## What is being tested
+        /// The error path: a failure to begin the transaction is propagated as
+        /// `TransactionError::BeginFailed`.
+        ///
+        /// ## Testing strategy
+        /// Close the pool before calling `transaction!`, then assert the result is
+        /// `Err(TransactionError::BeginFailed(...))`.
+        #[tokio::test]
+        async fn ts_04_begin_failed_when_pool_closed() {
+            let pool = in_memory_pool().await;
+            let man = SqliteTxManager::new(pool.clone());
+            pool.close().await;
+
+            let result = transaction!(man, |mut uow| async {
+                let _ = &uow;
+                Ok::<(), ()>(())
+            })
+            .await;
+
+            assert!(matches!(result, Err(TransactionError::BeginFailed(_))));
+        }
+
+        /// TS-05: `Serializable` isolation level is propagated through the
+        /// `transaction!` macro into the SQLite transaction.
+        ///
+        /// ## What is being tested
+        /// When a manager is explicitly configured with `Serializable`, the resulting
+        /// UoW must keep `PRAGMA read_uncommitted = 0` (the SQLite default).
+        ///
+        /// ## Testing strategy
+        /// Configure a manager with `Serializable`, use `transaction!` with a
+        /// body that queries `PRAGMA read_uncommitted` and returns `Ok(row.0)`,
+        /// then assert the outer result is `Ok(Ok(0))`.
+        #[tokio::test]
+        async fn ts_05_serializable_isolation_propagated() {
+            let pool = in_memory_pool().await;
+            let man = SqliteTxManager::new(pool)
+                .isolated_at(IsolationLevel::Serializable)
+                .if_platform_supports()
+                .unwrap();
+
+            let result = transaction!(man, |mut uow| async {
+                let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
+                    .fetch_one(uow.tx_mut().as_mut())
+                    .await
+                    .unwrap();
+                Ok::<i64, ()>(row.0)
+            })
+            .await;
+
+            assert!(matches!(result, Ok(Ok(0))));
+        }
+
+        /// TS-06: `ReadUncommitted` isolation level is propagated through the
+        /// `transaction!` macro into the SQLite transaction.
+        ///
+        /// ## What is being tested
+        /// The propagation chain from `TxManager.isolation_level` into the SQLite
+        /// transaction state.  When a manager is configured with
+        /// `ReadUncommitted`, the internal helper must issue
+        /// `PRAGMA read_uncommitted = 1` before handing the transaction to the caller.
+        ///
+        /// ## Testing strategy
+        /// Configure a manager with `ReadUncommitted`, use `transaction!` with a
+        /// body that queries `PRAGMA read_uncommitted` and returns `Ok(row.0)`,
+        /// then assert the outer result is `Ok(Ok(1))`.
+        #[tokio::test]
+        async fn ts_06_read_uncommitted_isolation_propagated() {
+            let pool = in_memory_pool().await;
+            let man = SqliteTxManager::new(pool)
+                .isolated_at(IsolationLevel::ReadUncommitted)
+                .if_platform_supports()
+                .unwrap();
+
+            let result = transaction!(man, |mut uow| async {
+                let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
+                    .fetch_one(uow.tx_mut().as_mut())
+                    .await
+                    .unwrap();
+                Ok::<i64, ()>(row.0)
+            })
+            .await;
+
+            assert!(matches!(result, Ok(Ok(1))));
+        }
+
+        /// TS-07: A `ReadUncommitted` transaction commits via `transaction!` and the same
+        /// physical connection is reused by a `Serializable` transaction.
+        ///
+        /// ## What is being tested
+        /// Connection hygiene: the isolation level pragma must be reset when the
+        /// transaction ends, so the next transaction on the same connection starts
+        /// with a clean state.
+        ///
+        /// ## Testing strategy
+        /// 1. Create a pool with `max_connections(1)`.
+        /// 2. Use `transaction!` on manager A (`ReadUncommitted`), query pragma
+        ///    and assert `1`, return `Ok(())`.
+        /// 3. Use `transaction!` on manager B (`Serializable`), query pragma and assert `0`.
+        #[tokio::test]
+        async fn ts_07_isolation_resets_after_commit_on_single_connection() {
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect("sqlite::memory:")
+                .await
+                .expect("single-connection pool");
+
+            let man_a = SqliteTxManager::new(pool.clone())
+                .isolated_at(IsolationLevel::ReadUncommitted)
+                .if_platform_supports()
+                .unwrap();
+
+            let result_a = transaction!(man_a, |mut uow| async {
+                let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
+                    .fetch_one(uow.tx_mut().as_mut())
+                    .await
+                    .unwrap();
+                assert_eq!(row.0, 1);
+                Ok::<(), ()>(())
+            })
+            .await;
+            assert!(matches!(result_a, Ok(Ok(()))));
+
+            let man_b = SqliteTxManager::new(pool)
+                .isolated_at(IsolationLevel::Serializable)
+                .if_platform_supports()
+                .unwrap();
+
+            let result_b = transaction!(man_b, |mut uow| async {
+                let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
+                    .fetch_one(uow.tx_mut().as_mut())
+                    .await
+                    .unwrap();
+                assert_eq!(row.0, 0);
+                Ok::<(), ()>(())
+            })
+            .await;
+            assert!(matches!(result_b, Ok(Ok(()))));
+        }
+
+        /// TS-08: A `ReadUncommitted` transaction rolls back via `transaction!` and the same
+        /// physical connection is reused by a `Serializable` transaction.
+        ///
+        /// ## What is being tested
+        /// Connection hygiene after rollback: the isolation level pragma must be reset
+        /// even when the transaction is rolled back, so the next transaction on the same
+        /// connection starts with a clean state.
+        ///
+        /// ## Testing strategy
+        /// 1. Create a pool with `max_connections(1)`.
+        /// 2. Use `transaction!` on manager A (`ReadUncommitted`), query pragma
+        ///    and assert `1`, return `Err("rollback me")`.
+        /// 3. Assert the first result is `Ok(Err("rollback me"))`.
+        /// 4. Use `transaction!` on manager B (`Serializable`), query pragma and assert `0`.
+        #[tokio::test]
+        async fn ts_08_isolation_resets_after_rollback_on_single_connection() {
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect("sqlite::memory:")
+                .await
+                .expect("single-connection pool");
+
+            let man_a = SqliteTxManager::new(pool.clone())
+                .isolated_at(IsolationLevel::ReadUncommitted)
+                .if_platform_supports()
+                .unwrap();
+
+            let result_a = transaction!(man_a, |mut uow| async {
+                let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
+                    .fetch_one(uow.tx_mut().as_mut())
+                    .await
+                    .unwrap();
+                assert_eq!(row.0, 1);
+                Err::<(), &str>("rollback me")
+            })
+            .await;
+            assert!(matches!(result_a, Ok(Err("rollback me"))));
+
+            let man_b = SqliteTxManager::new(pool)
+                .isolated_at(IsolationLevel::Serializable)
+                .if_platform_supports()
+                .unwrap();
+
+            let result_b = transaction!(man_b, |mut uow| async {
+                let row: (i64,) = sqlx::query_as("PRAGMA read_uncommitted")
+                    .fetch_one(uow.tx_mut().as_mut())
+                    .await
+                    .unwrap();
+                assert_eq!(row.0, 0);
+                Ok::<(), ()>(())
+            })
+            .await;
+            assert!(matches!(result_b, Ok(Ok(()))));
+        }
+
+        /// TS-09: `transaction!` returns `TransactionError::CommitFailed`
+        /// when the inner `UoW::commit` fails.
+        ///
+        /// ## What is being tested
+        /// The `transaction!` macro's error-path: if the body returns `Ok` but the
+        /// subsequent commit fails, the failure is wrapped in
+        /// `TransactionError::CommitFailed` rather than being silently dropped.
+        ///
+        /// ## Testing strategy
+        /// Force commit to fail by ending the underlying transaction early.  Inside
+        /// the body we execute `ROLLBACK`, which terminates the transaction.
+        /// Returning `Ok` from the body causes `transaction!` to attempt commit;
+        /// because the transaction is already ended, sqlx returns an error that is
+        /// propagated as `TransactionError::CommitFailed`.
+        #[tokio::test]
+        async fn ts_09_propagates_commit_failure() {
+            let pool = in_memory_pool().await;
+            let man = SqliteTxManager::new(pool);
+
+            let result = transaction!(man, |mut uow| async {
+                sqlx::query("ROLLBACK")
+                    .execute(uow.tx_mut().as_mut())
+                    .await
+                    .unwrap();
+                Ok::<(), ()>(())
+            })
+            .await;
+
+            assert!(matches!(result, Err(TransactionError::CommitFailed(_))));
+        }
+
+        /// TS-10: `transaction!` returns `TransactionError::RollbackFailed`
+        /// when the inner `UoW::rollback` fails.
+        ///
+        /// ## What is being tested
+        /// The `transaction!` macro's error-path: if the body returns `Err` and the
+        /// subsequent rollback fails, the failure is wrapped in
+        /// `TransactionError::RollbackFailed` rather than being silently dropped.
+        ///
+        /// ## Testing strategy
+        /// Force rollback to fail by ending the underlying transaction early.  Inside
+        /// the body we execute `ROLLBACK`, which terminates the transaction.
+        /// Returning `Err` from the body causes `transaction!` to attempt rollback;
+        /// because the transaction is already ended, sqlx returns an error that is
+        /// propagated as `TransactionError::RollbackFailed`.
+        #[tokio::test]
+        async fn ts_10_propagates_rollback_failure() {
+            let pool = in_memory_pool().await;
+            let man = SqliteTxManager::new(pool);
+
+            let result = transaction!(man, |mut uow| async {
+                sqlx::query("ROLLBACK")
+                    .execute(uow.tx_mut().as_mut())
+                    .await
+                    .unwrap();
+                Err::<(), &str>("intentional")
+            })
+            .await;
+
+            assert!(matches!(result, Err(TransactionError::RollbackFailed(_))));
+        }
+
+        /// TS-11: Fallback isolation level chain resolves end-to-end via `transaction!`.
+        ///
+        /// ## What is being tested
+        /// The full selector flow: chaining unsupported levels followed by a supported
+        /// one produces a working manager that can run transactions through the macro.
+        ///
+        /// ## Testing strategy
+        /// Build a manager via `isolated_at(RepeatableRead).or(Serializable).if_platform_supports()`,
+        /// use `transaction!` to create a table, and assert it commits successfully.
+        #[tokio::test]
+        async fn ts_11_fallback_chain_end_to_end() {
+            let pool = in_memory_pool().await;
+            let man = SqliteTxManager::new(pool)
+                .isolated_at(IsolationLevel::RepeatableRead)
+                .or(IsolationLevel::Serializable)
+                .if_platform_supports()
+                .unwrap();
+
+            let result = transaction!(man, |mut uow| async {
+                sqlx::query("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+                    .execute(uow.tx_mut().as_mut())
+                    .await
+                    .unwrap();
+                Ok::<(), ()>(())
+            })
+            .await;
+
+            assert!(matches!(result, Ok(Ok(()))));
+        }
+
+        /// TS-13: `transaction!` with `async move` commits when the body returns `Ok`.
         ///
         /// ## What is being tested
         /// The macro's `move` variant correctly delegates to `TxManager::transaction`
@@ -881,7 +1125,7 @@ mod tests {
         /// `Ok(())`. Assert the outer result is `Ok(Ok(()))`, then verify the table
         /// exists by querying `sqlite_master`.
         #[tokio::test]
-        async fn macro_async_move_variant_commits() {
+        async fn ts_13_async_move_variant_commits() {
             let pool = in_memory_pool().await;
             let man = SqliteTxManager::new(pool.clone());
 
