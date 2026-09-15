@@ -5,3 +5,6 @@ default:
 
 run-sqlite:
     cargo run -p balance-transfer
+
+test:
+    cargo test --workspace --all-features
