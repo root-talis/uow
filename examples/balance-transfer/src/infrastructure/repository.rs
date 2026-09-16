@@ -131,7 +131,7 @@ mod tests {
             async fn returns_storage_format_error_on_negative_balance() {
                 let (pool, tx_manager) = setup_db().await;
                 // Insert corrupted data directly
-                sqlx::query!("INSERT INTO accounts (id, balance) VALUES (99, -1)")
+                sqlx::query("INSERT INTO accounts (id, balance) VALUES (99, -1)")
                     .execute(&pool)
                     .await
                     .unwrap();

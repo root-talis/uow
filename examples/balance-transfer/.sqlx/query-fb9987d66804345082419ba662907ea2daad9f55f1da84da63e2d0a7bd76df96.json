@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO accounts (id, balance) VALUES ($1, $2)\n             ON CONFLICT(id) DO UPDATE SET balance = excluded.balance",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "fb9987d66804345082419ba662907ea2daad9f55f1da84da63e2d0a7bd76df96"
+}
